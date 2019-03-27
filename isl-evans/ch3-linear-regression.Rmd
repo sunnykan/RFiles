@@ -1,0 +1,119 @@
+---
+title: "Linear Regression"
+author: "KS"
+date: '2019-03-10'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r load libraries, message = FALSE}
+library("MASS")
+library("ISLR")
+library("tidyverse")
+library("broom")
+library("ggfortify")
+library("car")
+```
+
+### Ch3: Linear Regression
+#### Applied Exercises
+##### Q8: Use of simple linear regression on the Auto data set
+###### (a)
+
+```{r auto}
+auto <- as_tibble(Auto)
+glimpse(auto)
+lm_fit <- lm(mpg ~ horsepower, data = auto)
+summary(lm_fit)
+glance(lm_fit)
+tidy(lm_fit)
+```
+
+There is a negative association between horsepower and mpg. The coefficient on the predictor is highly significant and negative. The RSE is 4.91 which means that actual mpg for each car deviates from the true regression line by approximately 4.91, on average. The mean mpg for all cars is 23.44592 and so the percentage error is 4.91/23.44592 = 21%.
+
+The $R^2$ value indicates that about 60% of the variance in mpg can be explained by horsepower. 
+
+The confidence and prediction intervals when horsepower = 98 are:
+
+```{r intervals}
+predict(lm_fit, data.frame(horsepower = 98), interval = "confidence")
+predict(lm_fit, data.frame(horsepower = 98), interval = "prediction")
+```
+
+The predicted mpg associated with horsepower of 98 is 24.46708. The confidence and prediction intervals are (23.97308, 24.96108) and (14.8094 34.12476). As expected, the latter is wider than the former.
+
+###### (b)
+
+A plot of the response and the predictor with a least squares regression line.
+```{r plot}
+ggplot(data = auto, aes(x = horsepower, y = mpg)) +
+    geom_smooth(method = "lm", color = "red", se = FALSE, size = 0.3) + 
+    geom_point(alpha = 0.3)
+```
+
+###### (c)
+
+Diagnostic plots of the least squares regression fit. 
+
+```{r diagnostic-plots-1}
+diag_plots <- autoplot(lm_fit, which = 1:6, colour = "dodgerblue3",
+                       smooth.colour = "red", smooth.linetype = "dashed",
+                       ad.colour = "blue",
+                       label.size = 3, label.n = 5, label.colour = "black",
+                       ncol = 2, alpha = 0.3)
+diag_plots
+```
+
+The residuals versus fitted plot indicates a curvilinear relationship between mpg and horsepower. Observation 116 stands out as having both high leverage and a high studentized residual suggesting that it is an outlier with high leverage.
+
+##### Q9: Use of multiple linear regression on the Auto data set
+###### (a)
+
+A scatterplot matrix of all the variables
+
+```{r scatteplotmat, cache = TRUE}
+pairs(auto)
+```
+
+###### (b)
+
+A scatterplot matrix of all the variables
+
+```{r cormat}
+cor(auto[1:8])
+```
+
+###### (c)
+
+Fit a multiple linear regression model.
+
+```{r model}
+lm_fit_full <- lm(mpg ~. -name, data = auto) 
+summary(lm_fit_full)
+tidy(lm_fit_full)
+glance(lm_fit_full)
+```
+
+The p-value on the F-statistic is extremely small which indicates that there is a relationship between the predictors and the response.
+
+displacement, weight, year and origin appear to have statistically significant relationship to the response.
+
+The coefficient on the year variable is highly significant and positive which suggest that mpg has improved over time. 
+
+###### (d)
+
+```{r diagnostic-plots-2}
+diag_plots <- autoplot(lm_fit_full, which = c(1:4, 6), colour = "dodgerblue3",
+                       smooth.colour = "red", smooth.linetype = "dashed",
+                       ad.colour = "blue",
+                       label.size = 3, label.n = 5, label.colour = "black",
+                       ncol = 2, alpha = 0.3)
+diag_plots
+```
+
+There doesn't appear to be any unusually large outlier. Observation 14 seems to have unusually high leverage. We can fit the model again without that observation and inspect the results. 
+
+```{r }
+```

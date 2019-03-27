@@ -1,0 +1,218 @@
+---
+title: "ISL-chp2"
+author: "KS"
+date: '2018-11-06'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library("tidyverse")
+library("ISLR")
+library("gridExtra")
+library("broom")
+library("MASS")
+```
+
+### Question 8
+
+Exercise on College data set.
+
+```{r College}
+college <- as.tibble(College)
+names(college) <- tolower(names(college))
+glimpse(college)
+```
+
+### Summary
+
+You can also embed plots, for example:
+
+```{r college}
+summary(college)
+```
+
+### Plot 'outstate versus private' (boxplot)
+Plot shows that outstate tuition is higher at private colleges.
+
+```{r}
+p1 <- ggplot(data = college, aes(x = private, y = outstate)) + 
+    geom_boxplot()
+```
+
+### Create new factor variable 'elite' 
+('Yes' if Top10perc > 50 else 'No')
+
+```{r}
+college <- college %>% 
+    mutate(elite = as_factor(if_else(top10perc > 50, "Yes", "No")))
+#select(college, top10perc, elite)
+```
+
+### Plot 'outstate versus elite' (boxplot)
+Plot shows that outstate tuition is higher at elite institutions.
+
+```{r}
+p2 <- ggplot(data = college, aes(x = elite, y = outstate)) +
+    geom_boxplot()
+```
+
+### Plot grid
+
+```{r}
+p1 <- ggplot(data = college, aes(x = f.undergrad)) +
+    geom_histogram(bins = 50)
+p2 <- ggplot(data = college, aes(x = expend, fill = private)) + 
+    geom_histogram(bins = 50)
+p3 <- ggplot(data = college, aes(x = accept/apps, fill = elite)) + 
+    geom_histogram(bins = 50)
+p4 <- ggplot(data = college, aes(x = room.board, fill = private)) + 
+    geom_histogram(bins = 30)
+grid.arrange(p1, p2, p3, p4, nrow = 2, ncol = 2)
+```
+
+### 
+
+```{r}
+ggplot(data = college, aes(x = private, y = accept/apps)) +
+    geom_boxplot()
+```
+
+```{r}
+ggplot(data = college, aes(x = room.board, y = outstate, colour = private)) +
+    geom_point()
+```
+
+Graduation rate at elite universities is higher. 
+
+```{r}
+college %>% 
+    filter(grad.rate <= 100) %>% 
+    ggplot(aes(x = elite, y = grad.rate)) +
+    geom_boxplot()
+```
+
+Graduation rate is higher at private colleges
+
+```{r}
+college %>%
+    filter(grad.rate <= 100) %>% 
+    ggplot(aes(x = private, y = grad.rate)) +
+    geom_boxplot()
+```
+
+Slightly more students from top 10% of high school class go to private colleges
+
+```{r}
+ggplot(data = college, aes(x = private, y = top10perc)) +
+    geom_boxplot()
+```
+
+Student - faculty ratio is lower at private colleges
+
+```{r}
+ggplot(data = college, aes(x = private, y = s.f.ratio)) +
+    geom_boxplot()
+```
+
+Student - faculty ratio is lower at private colleges
+
+```{r}
+ggplot(data = college, aes(x = elite, y = s.f.ratio)) +
+    geom_boxplot()
+```
+
+
+### Question 9
+
+Exercise on Auto data set.
+
+```{r}
+auto <- as_tibble(Auto)
+glimpse(auto)
+summary(auto)
+```
+
+name: qualitative. cylinders, origin: may also be treated as ordered qualitative variables.
+
+use sapply to apply the function to the data by columns.
+
+```{r}
+sapply(auto[,1:8], range, na.rm = TRUE)
+```
+
+```{r}
+round(sapply(auto[,1:8], mean, na.rm = TRUE), 2)
+```
+
+```{r}
+round(sapply(auto[,1:8], sd, na.rm = TRUE), 2)
+```
+
+Using map_dbl instead of sapply
+
+```{r}
+map(auto[,1:8], range)
+round(map_dbl(auto[,1:8], mean), 3)
+round(map_dbl(auto[,1:8], sd), 3)
+```
+
+```{r}
+auto_reduced <- auto[-(10:85),]
+sapply(auto_reduced[,1:8], range)
+#map(auto_reduced[,1:8], range)
+round(map_dbl(auto_reduced[,1:8], mean), 3)
+round(map_dbl(auto_reduced[,1:8], sd), 3)
+```
+
+```{r}
+png(filename = "figures/pairs_auto.png")
+pairs(auto[,1:8])
+dev.off()
+```
+
+```{r}
+auto$cylinders <- as.factor(auto$cylinders)
+auto$origin <- as.factor(auto$origin)
+```
+
+### Question 10
+
+```{r}
+boston <- as.tibble(Boston)
+glimpse(boston)
+```
+
+```{r}
+dim(boston)
+pairs(boston[,1:7])
+```
+
+```{r}
+ggplot(data = boston, mapping = aes(x = age, y = nox)) +
+    geom_point()
+ggplot(data = boston, mapping = aes(x = medv, y = lstat)) +
+    geom_point()
+ggplot(data = boston, mapping = aes(x = black, y = crim)) +
+    geom_point()
+ggplot(data = boston, mapping = aes(x = crim)) + 
+    geom_histogram()
+ggplot(data = boston, mapping = aes(x = tax)) + 
+    geom_histogram()
+ggplot(data = boston, mapping = aes(x = ptratio)) + 
+    geom_histogram()
+```
+
+```{r}
+sum(boston$chas == 1)
+median(boston$ptratio)
+boston[which(boston$medv == min(boston$medv)), ]
+summary(boston)
+```
+
+```{r}
+sum(boston$rm > 7)
+sum(boston$rm > 8)
+boston[(boston$rm > 8),]
+```
+
