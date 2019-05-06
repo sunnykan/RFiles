@@ -2,7 +2,7 @@
 title: "Linear Regression"
 author: "KS"
 date: '2019-03-10'
-output: html_document
+output: rmarkdown::github_document
 ---
 
 ```{r setup, include=FALSE}
