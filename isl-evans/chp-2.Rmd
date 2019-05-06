@@ -2,7 +2,7 @@
 title: "ISL-chp2"
 author: "KS"
 date: '2018-11-06'
-output: html_document
+output: rmarkdown::github_document
 ---
 
 ```{r setup, include=FALSE}
