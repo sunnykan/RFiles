@@ -267,3 +267,325 @@ diag_plots
 There doesn’t appear to be any unusually large outlier. Observation 14
 seems to have unusually high leverage. We can fit the model again
 without that observation and inspect the results.
+
+##### Q10: Use of multiple linear regression on the Carseats data set
+
+###### carseats data
+
+``` r
+carseats <- as_tibble(Carseats)
+names(carseats) <- tolower(names(carseats))
+names(carseats)
+```
+
+    ##  [1] "sales"       "compprice"   "income"      "advertising" "population" 
+    ##  [6] "price"       "shelveloc"   "age"         "education"   "urban"      
+    ## [11] "us"
+
+``` r
+glimpse(carseats)
+```
+
+    ## Observations: 400
+    ## Variables: 11
+    ## $ sales       <dbl> 9.50, 11.22, 10.06, 7.40, 4.15, 10.81, 6.63, 11.85, …
+    ## $ compprice   <dbl> 138, 111, 113, 117, 141, 124, 115, 136, 132, 132, 12…
+    ## $ income      <dbl> 73, 48, 35, 100, 64, 113, 105, 81, 110, 113, 78, 94,…
+    ## $ advertising <dbl> 11, 16, 10, 4, 3, 13, 0, 15, 0, 0, 9, 4, 2, 11, 11, …
+    ## $ population  <dbl> 276, 260, 269, 466, 340, 501, 45, 425, 108, 131, 150…
+    ## $ price       <dbl> 120, 83, 80, 97, 128, 72, 108, 120, 124, 124, 100, 9…
+    ## $ shelveloc   <fct> Bad, Good, Medium, Medium, Bad, Bad, Medium, Good, M…
+    ## $ age         <dbl> 42, 65, 59, 55, 38, 78, 71, 67, 76, 76, 26, 50, 62, …
+    ## $ education   <dbl> 17, 10, 12, 14, 13, 16, 15, 10, 10, 17, 10, 13, 18, …
+    ## $ urban       <fct> Yes, Yes, Yes, Yes, Yes, No, Yes, Yes, No, No, No, Y…
+    ## $ us          <fct> Yes, Yes, Yes, Yes, No, Yes, No, Yes, No, Yes, Yes, …
+
+###### (a) Fit a multiple regression model to predict Sales using Price, Urban and US.
+
+``` r
+m1 <- lm(sales ~ price + urban + us, data = carseats)
+tidy(m1)
+```
+
+    ## # A tibble: 4 x 5
+    ##   term        estimate std.error statistic  p.value
+    ##   <chr>          <dbl>     <dbl>     <dbl>    <dbl>
+    ## 1 (Intercept)  13.0      0.651     20.0    3.63e-62
+    ## 2 price        -0.0545   0.00524  -10.4    1.61e-22
+    ## 3 urbanYes     -0.0219   0.272     -0.0807 9.36e- 1
+    ## 4 usYes         1.20     0.259      4.63   4.86e- 6
+
+``` r
+glance(m1)
+```
+
+    ## # A tibble: 1 x 11
+    ##   r.squared adj.r.squared sigma statistic  p.value    df logLik   AIC   BIC
+    ##       <dbl>         <dbl> <dbl>     <dbl>    <dbl> <int>  <dbl> <dbl> <dbl>
+    ## 1     0.239         0.234  2.47      41.5 2.39e-23     4  -928. 1865. 1885.
+    ## # … with 2 more variables: deviance <dbl>, df.residual <int>
+
+``` r
+summary(m1)
+```
+
+    ## 
+    ## Call:
+    ## lm(formula = sales ~ price + urban + us, data = carseats)
+    ## 
+    ## Residuals:
+    ##     Min      1Q  Median      3Q     Max 
+    ## -6.9206 -1.6220 -0.0564  1.5786  7.0581 
+    ## 
+    ## Coefficients:
+    ##              Estimate Std. Error t value Pr(>|t|)    
+    ## (Intercept) 13.043469   0.651012  20.036  < 2e-16 ***
+    ## price       -0.054459   0.005242 -10.389  < 2e-16 ***
+    ## urbanYes    -0.021916   0.271650  -0.081    0.936    
+    ## usYes        1.200573   0.259042   4.635 4.86e-06 ***
+    ## ---
+    ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+    ## 
+    ## Residual standard error: 2.472 on 396 degrees of freedom
+    ## Multiple R-squared:  0.2393, Adjusted R-squared:  0.2335 
+    ## F-statistic: 41.52 on 3 and 396 DF,  p-value: < 2.2e-16
+
+The price company charges for car seats at each site (price) and whether
+the store is in the US or not (usYes) are statistically significant at
+the 0.001 level. The former has a negative effect on sales while the
+latter has a negative effect. Specifically, a one unit change in price
+is associated with a decrease in sales of 0.054 units. If the store is
+located in the US, sales increase by 1.2 units. However, whether the
+store is located in an urban or rural location (urbanYes) is not
+statistically significant.
+
+###### (e) On the basis of your response to the previous question, fit a smaller model that only uses the predictors for which there is evidence of association with the outcome. Fit model with price and us.
+
+``` r
+m2 <- lm(sales ~ price + us, data = carseats)
+tidy(m2)
+```
+
+    ## # A tibble: 3 x 5
+    ##   term        estimate std.error statistic  p.value
+    ##   <chr>          <dbl>     <dbl>     <dbl>    <dbl>
+    ## 1 (Intercept)  13.0      0.631       20.7  7.00e-65
+    ## 2 price        -0.0545   0.00523    -10.4  1.27e-22
+    ## 3 usYes         1.20     0.258        4.64 4.71e- 6
+
+``` r
+glance(m2)
+```
+
+    ## # A tibble: 1 x 11
+    ##   r.squared adj.r.squared sigma statistic  p.value    df logLik   AIC   BIC
+    ##       <dbl>         <dbl> <dbl>     <dbl>    <dbl> <int>  <dbl> <dbl> <dbl>
+    ## 1     0.239         0.235  2.47      62.4 2.66e-24     3  -928. 1863. 1879.
+    ## # … with 2 more variables: deviance <dbl>, df.residual <int>
+
+``` r
+summary(m2)
+```
+
+    ## 
+    ## Call:
+    ## lm(formula = sales ~ price + us, data = carseats)
+    ## 
+    ## Residuals:
+    ##     Min      1Q  Median      3Q     Max 
+    ## -6.9269 -1.6286 -0.0574  1.5766  7.0515 
+    ## 
+    ## Coefficients:
+    ##             Estimate Std. Error t value Pr(>|t|)    
+    ## (Intercept) 13.03079    0.63098  20.652  < 2e-16 ***
+    ## price       -0.05448    0.00523 -10.416  < 2e-16 ***
+    ## usYes        1.19964    0.25846   4.641 4.71e-06 ***
+    ## ---
+    ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+    ## 
+    ## Residual standard error: 2.469 on 397 degrees of freedom
+    ## Multiple R-squared:  0.2393, Adjusted R-squared:  0.2354 
+    ## F-statistic: 62.43 on 2 and 397 DF,  p-value: < 2.2e-16
+
+The R Square and RSE values in both models are identical. In this case,
+we prefer the simpler model in m2 with fewer predictors.
+
+###### (g) Using the model from (e), obtain 95% confidence intervals for the coefficient(s).
+
+``` r
+upper <- tidy(m2)["estimate"] + qt(.975, 397) * tidy(m2)["std.error"]
+lower <- tidy(m2)["estimate"] - qt(.975, 397) * tidy(m2)["std.error"]
+cbind(upper, lower)
+```
+
+    ##      estimate    estimate
+    ## 1 14.27126531 11.79032020
+    ## 2 -0.04419543 -0.06475984
+    ## 3  1.70776632  0.69151957
+
+``` r
+confint(m2)
+```
+
+    ##                   2.5 %      97.5 %
+    ## (Intercept) 11.79032020 14.27126531
+    ## price       -0.06475984 -0.04419543
+    ## usYes        0.69151957  1.70776632
+
+###### (h) Is there evidence of outliers or high leverage observations in the model from (e)? We can examine some diagnostic plots.
+
+We can look at plots of studentized residuals versus fitted values.
+
+``` r
+aug_m2 <- augment(m2)
+y.fitted <- flatten_dbl(aug_m2[".fitted"])
+stu.resids <- rstudent(m2)
+stres_plt <- ggplot(data = NULL, mapping = aes(x = y.fitted, y = stu.resids)) +
+    geom_point(color = "dodgerblue") +
+    geom_hline(yintercept = 0, color = "grey") +
+    xlab("Fitted Values") +
+    ylab("Studentized Residuals")
+stres_plt
+```
+
+![](ch3-linear-regression_files/figure-gfm/diagplot1-q10-g-1.png)<!-- -->
+
+There are no observations greater then 3 in absolute value. Hence, there
+are no outliers.
+
+To identify high leverage observations we can plot studentized residuals
+versus leverage.
+
+``` r
+hats <- flatten_dbl(aug_m2[".hat"])
+lev_plt <- ggplot(data = carseats, mapping = aes(x = hats, y = stu.resids, 
+                  label =      rownames(carseats))) +
+    geom_text(color = "dodgerblue") +
+    geom_hline(yintercept = 0, color = "grey") +
+    xlab("Leverage") +
+    ylab("Studentized Residuals")
+lev_plt
+```
+
+![](ch3-linear-regression_files/figure-gfm/diagplot2-q10-g-1.png)<!-- -->
+
+Observation 43 is possibly a high leverage point. Removing it and
+estimating the model again shows a very slight reduction in the
+R-squared and the RSE values.
+
+##### Q11. In this problem we will investigate the t-statistic for the null hypoth- esis H0 : β = 0 in simple linear regression without an intercept.
+
+generate a predictor x and a response y:
+
+``` r
+set.seed(1)
+x <- rnorm(100)
+y <- 2 * x + rnorm(100)
+```
+
+###### (a) Perform a simple linear regression of y onto x, without an intercept.
+
+``` r
+lm.fit_yx <- lm(y ~ x + 0)
+tidy(lm.fit_yx)
+```
+
+    ## # A tibble: 1 x 5
+    ##   term  estimate std.error statistic  p.value
+    ##   <chr>    <dbl>     <dbl>     <dbl>    <dbl>
+    ## 1 x         1.99     0.106      18.7 2.64e-34
+
+The coefficient is highly statistically significant (\(beta\) = 1.99, SE
+= 0.106, t-statistic = 18.7, p-value = 2.64e-34). We can reject the
+null.
+
+###### (b) Perform a simple linear regression of x onto y without an intercept.
+
+``` r
+lm.fit_xy <- lm(x ~ y + 0)
+tidy(lm.fit_xy)
+```
+
+    ## # A tibble: 1 x 5
+    ##   term  estimate std.error statistic  p.value
+    ##   <chr>    <dbl>     <dbl>     <dbl>    <dbl>
+    ## 1 y        0.391    0.0209      18.7 2.64e-34
+
+The coefficient is highly statistically significant (\(beta\) = 0.391,
+SE = 0.0209, t-statistic = 18.7, p-value = 2.64e-34). We can reject the
+null.
+
+The t-statistics are identical in a and b.
+
+###### (f) In R, show that when regression is performed with an intercept, the t-statistic for H0 : β1 = 0 is the same for the regression of y onto x as it is for the regression of x onto y.
+
+``` r
+lm.fit_yx <- lm(y ~ x)
+tidy(lm.fit_yx)
+```
+
+    ## # A tibble: 2 x 5
+    ##   term        estimate std.error statistic  p.value
+    ##   <chr>          <dbl>     <dbl>     <dbl>    <dbl>
+    ## 1 (Intercept)  -0.0377    0.0970    -0.389 6.98e- 1
+    ## 2 x             2.00      0.108     18.6   7.72e-34
+
+``` r
+lm.fit_xy <- lm(x ~ y)
+tidy(lm.fit_xy)
+```
+
+    ## # A tibble: 2 x 5
+    ##   term        estimate std.error statistic  p.value
+    ##   <chr>          <dbl>     <dbl>     <dbl>    <dbl>
+    ## 1 (Intercept)   0.0388    0.0427     0.910 3.65e- 1
+    ## 2 y             0.389     0.0210    18.6   7.72e-34
+
+The values for the t-statistics are identical (18.6) in both
+regressions.
+
+##### (12) This problem involves simple linear regression without an intercept.
+
+###### (a) Under what circumstance is the coefficient estimate for the regression of X onto Y the same as the coefficient estimate for the regression of Y onto X?
+
+The coefficient estimate for the regression of X onto Y is same as the
+coefficient estimate for the regression of Y onto X when the Sum of
+squares of X = Sum of squares of Y.
+
+###### (b) Generate an example in R with n = 100 observations in which the coefficient estimate for the regression of X onto Y is different from the coefficient estimate for the regression of Y onto X.
+
+``` r
+set.seed(1)
+obs = 100
+x = rnorm(obs)
+sum(x^2)
+```
+
+    ## [1] 81.05509
+
+``` r
+y = 3*x + rnorm(obs, sd = 0.2)
+sum(y^2)
+```
+
+    ## [1] 732.5393
+
+``` r
+yonx <- lm(y ~ x + 0)
+tidy(yonx)
+```
+
+    ## # A tibble: 1 x 5
+    ##   term  estimate std.error statistic   p.value
+    ##   <chr>    <dbl>     <dbl>     <dbl>     <dbl>
+    ## 1 x         3.00    0.0213      141. 7.31e-116
+
+``` r
+xony <- lm(x ~ y + 0)
+tidy(xony)
+```
+
+    ## # A tibble: 1 x 5
+    ##   term  estimate std.error statistic   p.value
+    ##   <chr>    <dbl>     <dbl>     <dbl>     <dbl>
+    ## 1 y        0.332   0.00236      141. 7.31e-116

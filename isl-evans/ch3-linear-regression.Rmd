@@ -15,6 +15,7 @@ library("tidyverse")
 library("broom")
 library("ggfortify")
 library("car")
+
 ```
 
 ### Ch3: Linear Regression
@@ -115,5 +116,142 @@ diag_plots
 
 There doesn't appear to be any unusually large outlier. Observation 14 seems to have unusually high leverage. We can fit the model again without that observation and inspect the results. 
 
-```{r }
+
+##### Q10: Use of multiple linear regression on the Carseats data set
+###### carseats data
+
+```{r carseats-data}
+carseats <- as_tibble(Carseats)
+names(carseats) <- tolower(names(carseats))
+names(carseats)
+glimpse(carseats)
 ```
+
+###### (a) Fit a multiple regression model to predict Sales using Price, Urban and US.
+
+```{r carseats-model1}
+m1 <- lm(sales ~ price + urban + us, data = carseats)
+tidy(m1)
+glance(m1)
+summary(m1)
+```
+The price company charges for car seats at each site (price) and whether the store is in the US or not (usYes) are statistically significant at the 0.001 level. The former has a negative effect on sales while the latter has a negative effect. Specifically, a one unit change in price is associated with a decrease in sales of 0.054 units. If the store is located in the US, sales increase by 1.2 units. However, whether the store is located in an urban or rural location (urbanYes) is not statistically significant.
+
+###### (e) On the basis of your response to the previous question, fit a smaller model that only uses the predictors for which there is evidence of association with the outcome. Fit model with price and us.
+
+```{r carseats-model2}
+m2 <- lm(sales ~ price + us, data = carseats)
+tidy(m2)
+glance(m2)
+summary(m2)
+```
+The R Square and RSE values in both models are identical. In this case, we prefer the simpler model in m2 with fewer predictors.
+
+###### (g) Using the model from (e), obtain 95% confidence intervals for the coefficient(s).
+
+```{r carseats-m2-CI}
+upper <- tidy(m2)["estimate"] + qt(.975, 397) * tidy(m2)["std.error"]
+lower <- tidy(m2)["estimate"] - qt(.975, 397) * tidy(m2)["std.error"]
+cbind(upper, lower)
+
+confint(m2)
+```
+
+###### (h) Is there evidence of outliers or high leverage observations in the model from (e)? We can examine some diagnostic plots.
+
+We can look at plots of studentized residuals versus fitted values.
+
+```{r diagplot1-q10-g}
+aug_m2 <- augment(m2)
+y.fitted <- flatten_dbl(aug_m2[".fitted"])
+stu.resids <- rstudent(m2)
+stres_plt <- ggplot(data = NULL, mapping = aes(x = y.fitted, y = stu.resids)) +
+    geom_point(color = "dodgerblue") +
+    geom_hline(yintercept = 0, color = "grey") +
+    xlab("Fitted Values") +
+    ylab("Studentized Residuals")
+stres_plt
+```
+
+There are no observations greater then 3 in absolute value. Hence, there are no outliers.
+
+To identify high leverage observations we can plot studentized residuals versus leverage.
+
+```{r diagplot2-q10-g}
+hats <- flatten_dbl(aug_m2[".hat"])
+lev_plt <- ggplot(data = carseats, mapping = aes(x = hats, y = stu.resids, 
+                  label =      rownames(carseats))) +
+    geom_text(color = "dodgerblue") +
+    geom_hline(yintercept = 0, color = "grey") +
+    xlab("Leverage") +
+    ylab("Studentized Residuals")
+lev_plt
+```
+
+Observation 43 is possibly a high leverage point. Removing it and estimating the model again shows a very slight reduction in the R-squared and the RSE values.
+
+##### Q11. In this problem we will investigate the t-statistic for the null hypoth- esis H0 : β = 0 in simple linear regression without an intercept.
+
+generate a predictor x and a response y:
+
+```{r gen-pred-outcome}
+set.seed(1)
+x <- rnorm(100)
+y <- 2 * x + rnorm(100)
+```
+
+###### (a) Perform a simple linear regression of y onto x, without an intercept.
+
+```{r reg-yonx-noconst}
+lm.fit_yx <- lm(y ~ x + 0)
+tidy(lm.fit_yx)
+```
+
+The coefficient is highly statistically significant ($beta$ = 1.99, SE = 0.106, t-statistic = 18.7, p-value = 2.64e-34). We can reject the null. 
+
+###### (b) Perform a simple linear regression of x onto y without an intercept.
+
+```{r reg-xony-noconst}
+lm.fit_xy <- lm(x ~ y + 0)
+tidy(lm.fit_xy)
+```
+
+The coefficient is highly statistically significant ($beta$ = 0.391, SE = 0.0209, t-statistic = 18.7, p-value = 2.64e-34). We can reject the null. 
+
+The t-statistics are identical in a and b.
+
+###### (f) In R, show that when regression is performed with an intercept, the t-statistic for H0 : β1 = 0 is the same for the regression of y onto x as it is for the regression of x onto y.
+
+```{r reg-xony}
+lm.fit_yx <- lm(y ~ x)
+tidy(lm.fit_yx)
+
+lm.fit_xy <- lm(x ~ y)
+tidy(lm.fit_xy)
+```
+
+The values for the t-statistics are identical (18.6) in both regressions.
+
+##### (12) This problem involves simple linear regression without an intercept.
+###### (a) Under what circumstance is the coefficient estimate for the regression of X onto Y the same as the coefficient estimate for the regression of Y onto X?
+
+The coefficient estimate for the regression of X onto Y is same as the coefficient estimate for the regression of Y onto X when the Sum of squares of X = Sum of squares of Y.
+
+###### (b) Generate an example in R with n = 100 observations in which the coefficient estimate for the regression of X onto Y is different from the coefficient estimate for the regression of Y onto X.
+
+```{r same-coef-ex}
+set.seed(1)
+obs = 100
+x = rnorm(obs)
+sum(x^2)
+
+y = 3*x + rnorm(obs, sd = 0.2)
+sum(y^2)
+
+yonx <- lm(y ~ x + 0)
+tidy(yonx)
+xony <- lm(x ~ y + 0)
+tidy(xony)
+```
+
+
