@@ -2,13 +2,16 @@
 title: "Linear Regression"
 author: "KS"
 date: '2019-03-10'
-output: rmarkdown::github_document
+output:
+    github_document: default
+    html_notebook: default
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 ```{r load libraries, message = FALSE}
+
 library("MASS")
 library("ISLR")
 library("tidyverse")
@@ -48,7 +51,7 @@ The predicted mpg associated with horsepower of 98 is 24.46708. The confidence a
 ###### (b)
 
 A plot of the response and the predictor with a least squares regression line.
-```{r plot}
+```{r plot, cache = TRUE}
 ggplot(data = auto, aes(x = horsepower, y = mpg)) +
     geom_smooth(method = "lm", color = "red", se = FALSE, size = 0.3) + 
     geom_point(alpha = 0.3)
@@ -58,7 +61,7 @@ ggplot(data = auto, aes(x = horsepower, y = mpg)) +
 
 Diagnostic plots of the least squares regression fit. 
 
-```{r diagnostic-plots-1}
+```{r diagnostic-plots-1, cache = TRUE}
 diag_plots <- autoplot(lm_fit, which = 1:6, colour = "dodgerblue3",
                        smooth.colour = "red", smooth.linetype = "dashed",
                        ad.colour = "blue",
@@ -82,7 +85,7 @@ pairs(auto)
 
 A scatterplot matrix of all the variables
 
-```{r cormat}
+```{r cormat, cache = TRUE}
 cor(auto[1:8])
 ```
 
@@ -105,7 +108,7 @@ The coefficient on the year variable is highly significant and positive which su
 
 ###### (d)
 
-```{r diagnostic-plots-2}
+```{r diagnostic-plots-2, cache = TRUE}
 diag_plots <- autoplot(lm_fit_full, which = c(1:4, 6), colour = "dodgerblue3",
                        smooth.colour = "red", smooth.linetype = "dashed",
                        ad.colour = "blue",
@@ -173,7 +176,7 @@ stres_plt <- ggplot(data = NULL, mapping = aes(x = y.fitted, y = stu.resids)) +
 stres_plt
 ```
 
-There are no observations greater then 3 in absolute value. Hence, there are no outliers.
+As there are no observations greater then 3 in absolute value, we may conclude that there are no outliers.
 
 To identify high leverage observations we can plot studentized residuals versus leverage.
 
@@ -254,4 +257,406 @@ xony <- lm(x ~ y + 0)
 tidy(xony)
 ```
 
+###### (c) Generate an example in R with n = 100 observations in which the coefficient estimate for the regression of X onto Y is _the_ _same_ _as_ the coefficient estimate for the regression of Y onto X.
 
+```{r diff-coef-ex} 
+x = rnorm(obs)
+y = sample(x)
+sum(x^2)
+sum(y^2)
+
+yonx <- lm(y ~ x + 0)
+tidy(yonx)
+
+xony <- lm(x ~ y + 0)
+tidy(xony)
+```
+
+The estimates are identical as expected.
+
+##### (13) Create some simulated data and fit simple linear regression models to it.
+
+####### (a) create feature X with 100 observations drawn from N(0, 1)
+
+```{r create-X-a}
+set.seed(1)
+obs = 100
+x = rnorm(obs, mean = 0.0, sd = 1) # variance = 1
+mean(x)
+sd(x)
+```
+
+####### (b) create feature X with 100 observations drawn from N(0, 0.25)
+
+```{r create-X-b}
+eps = rnorm(obs, mean = 0.0, sd = sqrt(0.25)) # variance = 0.25
+mean(eps)
+sd(eps)
+```
+
+###### (c) Using x and eps, generate a vector y according to the model
+y = −1 + 0.5x + ε.
+
+```{r gen-model}
+y = -1 + (0.5 * x) + eps
+length(y)
+```
+$\beta_{0}$ = -1, $\beta_{1}$ = 0.5 in the linear model.
+
+###### (d) Scatterplot displaying the relationship between x and y
+
+```{r plt-xy-d}
+plt_xyd <- ggplot(data = NULL, mapping = aes(x = x, y = y)) + 
+    geom_point(color = "dodgerblue")
+plt_xyd
+```
+
+The relationship appears to be linear and positive; as x increases, so does y.
+
+###### (e) Fit a least squares model to predict y using x.
+
+```{r lm-xy-e}
+yonx13 <- lm(y ~ x)
+tidy(yonx13)
+```
+The estimated values of the intercept $\hat{\beta_{0}}$ (`r yonx13$coefficients[[1]]`) and the slope $\hat{\beta_{1}}$ (`r yonx13$coefficients[[2]]`) are very close to the true values. The $R^2$ and RSE values are 46% and 0.481, respectively.
+
+###### (f) Display the least squares line and the population regression line on the scatterplot obtained in (d)
+
+```{r plot-regline}
+reg_plt <- ggplot(data = NULL, aes(x = x, y = y)) + 
+    geom_smooth(method = "lm", color = "red", se = FALSE) + 
+    geom_point(color = "dodger blue") + 
+    geom_abline(slope = 0.5, intercept = -1, color = "dark green")
+reg_plt
+```
+
+###### (g) Fit a polynomial regression model that predicts y using x and $x^2$ 
+
+```{r poly-reg}
+lm.fit_poly2 = lm(y ~ x + I(x^2))
+tidy(lm.fit_poly2)
+
+# using orthogoal polynomials
+lm.fit_opoly2 = lm(y ~ poly(x, 2))
+tidy(lm.fit_opoly2)
+glance(lm.fit_opoly2)
+```
+
+There is a very slight improvement in $R^2$ and RSE values. We can also examine the plot of residuals versus fitted values.
+
+```{r diag-plot13g}
+diag_plots13g <- autoplot(lm.fit_opoly2, which = 1, colour = "dodgerblue3",
+                       smooth.colour = "red", smooth.linetype = "dashed",
+                       ad.colour = "blue",
+                       label.size = 3, label.n = 5, label.colour = "black",
+                       ncol = 2, alpha = 0.3)
+diag_plots13g
+```
+
+For comparison we may look at the same plot obtained from the model without the polynomial term.
+
+```{r diag-plot13}
+diag_plots13 <- autoplot(yonx13, which = 1, colour = "dodgerblue3",
+                       smooth.colour = "red", smooth.linetype = "dashed",
+                       ad.colour = "blue",
+                       label.size = 3, label.n = 5, label.colour = "black",
+                       ncol = 2, alpha = 0.3)
+diag_plots13
+```
+
+We can that there is some improvement in the fit from the model with the polynomial term. The smoothed line (red) is flatter.
+
+###### (h) Repeat (a) - (f) with less noise
+
+```{r lessnoise}
+eps = rnorm(100, mean = 0, sd = 0.10)
+y = -1 + 0.5*x + eps
+length(y)
+
+
+```
+Scatterplot between x and y.
+
+```{r plt-xy-h}
+plt_xyh <- ggplot(data = NULL, mapping = aes(x = x, y = y)) + 
+    geom_point(color = "dodgerblue")
+plt_xyh
+
+```
+
+As expected the data are less spread out in the y direction compared to the case when the errors were drawn from a distribution with higher variance.
+
+```{r lm-xy-h}
+yonx13h <- lm(y ~ x)
+tidy(yonx13h)
+glance(yonx13h)
+```
+The estimated values of the intercept $\hat{\beta_{0}}$ (`r yonx13h$coefficients[[1]]`) and the slope $\hat{\beta_{1}}$ (`r yonx13h$coefficients[[2]]`) are very close to the true values. However, the $R^2$ and RSE values are 95% and 0.104, respectively. 
+
+
+###### (i) Repeat (a) - (f) with more noise
+
+```{r morenoise}
+eps = rnorm(100, mean = 0, sd = 1.0)
+y = -1 + 0.5*x + eps
+length(y)
+
+```
+
+Scatterplot between x and y.
+
+```{r plt-xy-i}
+plt_xyi <- ggplot(data = NULL, mapping = aes(x = x, y = y)) + 
+    geom_point(color = "dodgerblue")
+plt_xyi
+
+```
+
+As expected the data are more spread out in the y direction compared to the case when the errors were drawn from a distribution with lower variance.
+
+```{r lm-xy-i}
+yonx13i <- lm(y ~ x)
+tidy(yonx13i)
+glance(yonx13i)
+```
+The estimated values of the intercept $\hat{\beta_{0}}$ (`r yonx13i$coefficients[[1]]`) and the slope $\hat{\beta_{1}}$ (`r yonx13i$coefficients[[2]]`) are very close to the true values. However, the $R^2$ and RSE values are 15% and 1.10, respectively. The regression model accounts for only 15% of the variance.
+
+###### (j) Confidence intervals for $\beta_{0}$ and $\beta_{1}$ based on the original, less noisy and more noisy data sets.
+
+```{r}
+confint(yonx13) # original
+confint(yonx13h) # less noise
+confint(yonx13i) # more noise
+```
+
+As expected the confidence interval is narrowest for the data with the least noise while it is the widest for the data with the most noise. The original data had noise between these two extremes and hence has a confidence interval within these extremes. Estimates are more uncertain when there is more noise.
+
+##### (14) Focus on the _collinearity_ problem
+
+###### (a)
+```{r part-14a}
+set.seed(1)
+x1 <- runif(100)
+x2 <- (0.5 * x1) + rnorm(100)/10
+y <- 2 + (2 * x1) + (0.3 * x2) + rnorm(100)
+```
+
+Form of the linear model: $$Y = \beta_{0} + \beta_{1}x1 + \beta_{2}x2 + \epsilon$$. 
+
+The coefficient values are: ($\beta_{0}$ = 2, $\beta_{1}$ = 2, $\beta_{2}$ = 0.3)
+
+###### (b) Correlation between x1 and x2; scatterplot between the two variables.
+
+```{r plt-x1x2}
+cor(x1, x2)
+x1x2 <- ggplot(data = NULL, aes(x = x1, y = x2)) + 
+    geom_point(color = "dodger blue")
+x1x2
+```
+
+There is a linear association between the two which can be seen in the scatterplot. The correlation between the two variables is `r cor(x1, x2)`.
+
+###### (c) Fit a least squares regression to predict y using x1 and x2.
+
+```{r lm-x1x2}
+lm.fit14 <- lm(y ~ x1 + x2)
+tidy(lm.fit14)
+glance(lm.fit14)
+```
+
+$\hat{\beta_{0}}$ (`r lm.fit14$coefficients[[1]]`), $\hat{\beta_{1}}$ (`r lm.fit14$coefficients[[2]]`), $\hat{\beta_{2}}$ (`r lm.fit14$coefficients[[3]]`)
+
+Except for the intercept, these are not good estimates of the true $\beta_{1}$ and $\beta_{2}$. We can reject the null hypothesis of $H_{0}$: $\beta_{1}$ = 0 at the 0.05 level. However, $H_{0}$: $\beta_{2}$ = 0 cannot be rejected at conventional levels.
+
+###### (d) Fit least squares regression to predict y using x1.
+
+```{r lm-x1, cache = TRUE}
+lm.fit14x1 <- lm(y ~ x1)
+tidy(lm.fit14x1)
+glance(lm.fit14x1)
+```
+
+We can reject the null hypothesis of $H_{0}$: $\beta_{1}$ = 0 at the 0.001 level.
+
+###### (d) Fit least squares regression to predict y using x2.
+
+```{r lm-x2, cache = TRUE}
+lm.fit14x2 <- lm(y ~ x2)
+tidy(lm.fit14x2)
+glance(lm.fit14x2)
+```
+
+We can reject the null hypothesis of $H_{0}$: $\beta_{1}$ = 0 at the 0.001 level.
+
+The results from (c) and (d) seemingly contradict the result from (b). However, we know that x1 and x2 are correlated making it difficult to separate out the effects of each on the response y. The presence of collinearity inflates the standard errors so much so that the coefficient on x2 in the multiple regression with x1 and x2 becomes statistically insignificant. For this particular example, we may consider dropping x2 since the presence of collinearity implies that the information about the response obtained from x2 is redundant in the presence of x1.
+
+###### (f) Suppose we obtain an additional observation (mismeasured)
+
+```{r add-oneobs}
+mean(y)
+mean(x1)
+mean(x2)
+
+x1 <- c(x1, 0.1)
+x2 <- c(x2, 0.8)
+y <- c(y, 6)
+
+mean(y)
+mean(x1)
+mean(x2)
+cor(x1, x2)
+```
+
+Re-fit the models from (c) to (e) with the additional observation in the data.
+
+```{r lm-extraobs}
+lm.fit14h <- lm(y ~ x1 + x2)
+tidy(lm.fit14h)
+
+lm.fit14x1h <- lm(y ~ x1)
+tidy(lm.fit14x1h)
+
+lm.fit14x2h <- lm(y ~ x2)
+tidy(lm.fit14x2h)
+```
+
+The addition of the extra observation reduces the correlation between x1 and x2 to `r cor(x1, x2)`. Examining the model with both predictors, we find that we can no longer reject $H_{0}$: $\beta_{1}$ = 0 but we can, however, reject $H_{0}$: $\beta_{2}$ = 0 at conventional levels. The individual models with x1 and x2 show an increase and a decrease in the standard error for each, respectively.
+
+We may examine a plot of studentized residuals against fitted values to check for outliers.
+
+```{r diagplot1-q14-h}
+aug_14 <- augment(lm.fit14h)
+y.fitted <- flatten_dbl(aug_14[".fitted"])
+stu.resids <- rstudent(lm.fit14h)
+stres_plt14 <- ggplot(data = NULL, mapping = aes(x = y.fitted, y = stu.resids)) +
+    geom_point(color = "dodgerblue") +
+    geom_hline(yintercept = 0, color = "grey") +
+    xlab("Fitted Values") +
+    ylab("Studentized Residuals")
+stres_plt14
+```
+
+All values are within absolute value of 3 indicating that there are no outliers in the data.
+
+What about leverage? To identify high leverage observations we can plot studentized residuals versus leverage.
+
+```{r diagplot2-q14-h}
+hats <- flatten_dbl(aug_14[".hat"])
+stu.resids <- rstudent(lm.fit14h)
+lev_plt <- ggplot(data = NULL, mapping = aes(x = hats, y = stu.resids)) +
+    geom_point(color = "dodger blue") + 
+    geom_hline(yintercept = 0, color = "grey") +
+    xlab("Leverage") +
+    ylab("Studentized Residuals")
+lev_plt
+```
+
+
+We can see that the added observation is a high leverage point but does not appear to be an outlier.
+
+##### (15) Try to predict per capita crime rate using the other variables in the Boston data set. Per capita crime rate is the response, and the other variables are the predictors.
+
+```{r}
+boston <- as_tibble(Boston)
+glimpse(boston)
+```
+
+###### (a) For each predictor, fit a simple linear regression model to predict the response.
+
+```{r slm-all15}
+results_table = sapply(names(boston)[2:14], 
+                       function(x) glance(lm(boston$crim ~ boston[[x]])))
+results_table
+
+```
+
+Every predictor - except chas - has a statistically significant association with the response (see p.value or statistic in the table). 
+
+Alternative way to do fit the models.
+
+```{r slm-all15-alt}
+features <- names(boston[2:14])
+
+#generate a separate model for the regression of each feature on target (crim)
+models = map(features, ~ lm(reformulate(.x, "crim"), data=boston))
+models
+#label each model with corresponding formula. function extracts "terms" from each model
+names(models) = map(models, ~ .x[["terms"]])
+names(models)
+#assess model performance
+model_coefs = map_df(models, tidy, .id = "Model")
+model_coefs
+model_performance = map_df(models, glance, .id = "Model")
+model_performance
+#print all rows
+model_coefs %>% print(n = nrow(.))
+model_coefs
+```
+
+
+```{r slm-all-plots}
+plt <- function(df, y, x) {
+    p <- ggplot(data = df, aes(x = df[,x], y = df[,y])) +
+            geom_smooth(method = "lm", color = "red", se = FALSE, size = 0.2) +
+            geom_point(color = "dodger blue") +
+            xlab(x) + ylab(y)
+    return(p)
+}
+
+plt(data.frame(boston), "crim", "zn")
+plt(data.frame(boston), "crim", "indus")
+plt(data.frame(boston), "crim", "chas")
+plt(data.frame(boston), "crim", "nox")
+plt(data.frame(boston), "crim", "rm")
+plt(data.frame(boston), "crim", "age")
+plt(data.frame(boston), "crim", "dis")
+plt(data.frame(boston), "crim", "rad")
+plt(data.frame(boston), "crim", "tax")
+plt(data.frame(boston), "crim", "ptratio")
+plt(data.frame(boston), "crim", "black")
+plt(data.frame(boston), "crim", "lstat")
+plt(data.frame(boston), "crim", "medv")
+
+```
+
+While chas is the only variable that is not statistically significant at conventional levels, the figures above show that some of the variables may not suitable for inclusion in a linear model. Individual diagnostic plots show violations of assumptions of linear models.
+
+###### (b) Fit a multiple regression model to predict the response using all of the predictors.
+
+```{r mlm-15b}
+model_full <- lm(crim ~., data = boston)
+tidy(model_full)
+glance(model_full)
+```
+
+We can reject the null hypothesis $H_{0}$: $\beta_{j}$ = 0 for zn, dis, rad, black and medv.
+
+###### (c)
+Comparing the results from (a) and (b), we can see that a number of predictors are no longer statistically significant in the latter case.
+
+Create a plot displaying the univariate regression coefficients from (a) on the x-axis, and the multiple regression coefficients from (b) on the y-axis.
+
+```{r plt-uni-mult}
+uni_coef_vals = subset(model_coefs, 
+                       term != "(Intercept)")[1:13, c("term", "estimate")]
+full_coef_vals = tidy(model_full)[2:14, c("term", "estimate")]
+# join the tables
+coef_table <- uni_coef_vals %>% inner_join(full_coef_vals, by = "term")
+coef_table
+```
+
+###### (d) Is there evidence of non-linear association between any of the predictors and the response?
+
+```{r mlm-nonlinear}
+features <- names(boston[-c(1,4)]) # remove crim and chas
+models_poly = map(features, 
+                  ~ lm(reformulate(paste0("poly(", .x, ", ", 3, ")"), "crim"), data = boston))
+model_coefs_poly = map_df(models_poly, tidy, .id = "Model")
+model_performance_poly = map_df(models_poly, glance, .id = "Model")
+model_coefs_poly %>% print(n = nrow(.))
+
+```
+
+The quadratic and cubic terms for black are not statistically significant while they are statistically significant for indus, nox, age, dis, ptratio, medv.
+The quadratic term is significant for zn, rm, rad, tax, lstat. Thus, except for black there is evidence of non-linear association between the predictors and the response.

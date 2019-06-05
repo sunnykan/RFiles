@@ -285,9 +285,9 @@ tidy(lm.fit_xy)
 set.seed(1)
 X = rnorm(100, 0, 1)
 summary(X)
-eps = rnorm(100, 0, 0.25)
+eps = rnorm(100, 0, sqrt(0.25))
 summary(eps)
-Y = 1 + 0.5*X + eps
+Y = -1 + 0.5*X + eps
 lm.fit = lm(Y ~ X)
 tidy(lm.fit)
 glance(lm.fit)
@@ -296,7 +296,7 @@ summary(lm.fit)
 ggplot(data = data.frame(X, Y), aes(x = X, y = Y)) + 
     geom_smooth(method = "lm", color = "red", se = FALSE) + 
     geom_point() + 
-    geom_abline(slope = 0.5, intercept = 1, color = "green")
+    geom_abline(slope = 0.5, intercept = -1, color = "green")
 
 diag_plots <- autoplot(lm.fit, which = 1, colour = "dodgerblue3",
                        smooth.colour = "red", smooth.linetype = "dashed",
@@ -316,8 +316,8 @@ diag_plots
 
 # LESS NOISE
 
-eps = rnorm(100, 0, 0.10)
-Y = 1 + 0.5*X + eps
+eps = rnorm(100, mean = 0, sd = 0.10)
+Y = -1 + 0.5*X + eps
 lm.fith = lm(Y ~ X)
 tidy(lm.fith)
 glance(lm.fith)
@@ -347,8 +347,8 @@ diag_plots <- autoplot(lm.fith_poly2, which = 1, colour = "dodgerblue3",
 diag_plots
 
 # MORE NOISE
-eps = rnorm(100, 0, 0.5)
-Y = 1 + 0.5*X + eps
+eps = rnorm(100, 0, 1.0)
+Y = -1 + 0.5*X + eps
 lm.fiti = lm(Y ~ X)
 tidy(lm.fiti)
 glance(lm.fiti)
@@ -357,7 +357,7 @@ summary(lm.fiti)
 ggplot(data = data.frame(X, Y), aes(x = X, y = Y)) + 
     geom_smooth(method = "lm", color = "red", se = FALSE) + 
     geom_point() + 
-    geom_abline(slope = 0.5, intercept = 1, color = "green")
+    geom_abline(slope = 0.5, intercept = -1, color = "green")
 
 diag_plots <- autoplot(lm.fith, which = 1, colour = "dodgerblue3",
                        smooth.colour = "red", smooth.linetype = "dashed",
@@ -478,14 +478,17 @@ uni_coef_vals = subset(model_coefs, term != "(Intercept)")[1:13, c("term", "esti
 coef_table <- uni_coef_vals %>% inner_join(full_coef_vals, by = "term")
 
 ggplot(data = coef_table, aes(x = estimate.x, y = estimate.y)) +
-    geom_point() + geom_text(aes(label = term),hjust = 0, vjust = 1)
-
+    geom_point() + geom_text(aes(label = term),hjust = 0, vjust = 1) +
+    xlab("Estimate from simple linear regression") +
+    ylab("Estimate form multiple linear regression ")
 coef_table %>% 
     filter(term != "nox") %>% 
     ggplot(aes(x = estimate.x, y = estimate.y)) + 
     geom_point(alpha = 0.3) +
     geom_text(aes(label = term),hjust = 1, vjust = 1) +
-    geom_abline(slope = 1, intercept = 0, color = "orange")
+    geom_abline(slope = 1, intercept = 0, color = "orange") +
+    xlab("Estimate from simple linear regression (w/o nox)") +
+    ylab("Estimate form multiple linear regression (w/o nox")
 
 #Fit polynomials of degree 3 to features
 #Remove factor variable (chas)
