@@ -4,7 +4,6 @@ author: "KS"
 date: '2019-03-10'
 output:
     github_document: default
-    html_notebook: default
 ---
 
 ```{r setup, include=FALSE}
