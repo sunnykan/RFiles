@@ -638,7 +638,7 @@ expected.
 
 ##### (13) Create some simulated data and fit simple linear regression models to it.
 
-# (a) create feature X with 100 observations drawn from N(0, 1)
+###### (a) create feature X with 100 observations drawn from N(0, 1)
 
 ``` r
 set.seed(1)
@@ -655,7 +655,7 @@ sd(x)
 
     ## [1] 0.8981994
 
-# (b) create feature X with 100 observations drawn from N(0, 0.25)
+###### (b) create feature X with 100 observations drawn from N(0, 0.25)
 
 ``` r
 eps = rnorm(obs, mean = 0.0, sd = sqrt(0.25)) # variance = 0.25

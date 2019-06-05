@@ -275,7 +275,7 @@ The estimates are identical as expected.
 
 ##### (13) Create some simulated data and fit simple linear regression models to it.
 
-####### (a) create feature X with 100 observations drawn from N(0, 1)
+###### (a) create feature X with 100 observations drawn from N(0, 1)
 
 ```{r create-X-a}
 set.seed(1)
@@ -285,7 +285,7 @@ mean(x)
 sd(x)
 ```
 
-####### (b) create feature X with 100 observations drawn from N(0, 0.25)
+###### (b) create feature X with 100 observations drawn from N(0, 0.25)
 
 ```{r create-X-b}
 eps = rnorm(obs, mean = 0.0, sd = sqrt(0.25)) # variance = 0.25
