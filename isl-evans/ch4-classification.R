@@ -176,12 +176,12 @@ table(glm.pred, test.Y)
 
 # --------------------------------
 #Exercise 10
-weekly <- as.tibble(Weekly)
+weekly <- as_tibble(Weekly)
 glimpse(weekly)
 summary(weekly)
 names(weekly) <- tolower(names(weekly))
 names(weekly)
-#ggpairs(weekly, aes(colour = direction, alpha = 0.2))
+ggpairs(weekly, aes(colour = direction, alpha = 0.2))
 ggplot(data = weekly, aes(x = lag1, y = today, color = direction)) +
     geom_point()
 cor(weekly[,-9])
@@ -570,6 +570,7 @@ power3 <- function(x, a) {
 power3(2, 4)
 typeof(power3(2, 4))
 
+#http://www.sthda.com/english/wiki/ggplot2-axis-scales-and-transformations#log-and-sqrt-transformations
 x <- 1:10
 y <- power3(x, 2)
 plot(x, y)

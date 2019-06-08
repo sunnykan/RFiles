@@ -1,0 +1,797 @@
+---
+title: "Ch4-classification"
+author: "KS"
+date: '2019-06-05'
+output:
+    github_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load libraries, message = FALSE}
+library("MASS")
+library("tidyverse")
+library("broom")
+library("ISLR")
+library("GGally")
+library("glue")
+library("class")
+library("scales")
+```
+
+### Ch4: Classification
+#### Applied Exercises
+
+##### (10) Use the Weekly data set which contains 1,089 weekly returns for 21 years, from the beginning of 1990 to the end of 2010.
+
+```{r}
+weekly <- as_tibble(Weekly)
+names(weekly) <- tolower(names(weekly))
+glimpse(weekly)
+```
+
+
+###### (a) Produce some numerical and graphical summaries of the Weekly data.
+
+```{r summaries, cache = TRUE}
+summary(weekly)
+weekly %>% 
+    mutate_if(is.factor, as.integer) %>% 
+    cor()
+pairs_plt <- ggpairs(weekly, aes(colour = direction, alpha = 0.2))
+#pairs_plt
+```
+
+There does not appear to be any association between the lag terms and today's returns. However, volume appears to have increased over time.
+
+Function to calculate various metrics used to evaluate methods in (b) - (i).
+
+```{r fn-metrics-10}
+calc_metrics <- function(cfm, preds, target){
+
+    TP <- cfm[2, 2] # true positives
+    TN <- cfm[1, 1] # true negatives
+    FP <- cfm[1, 2] # false positives
+    FN <- cfm[2, 1] # false negatives
+    
+    accr <- mean(preds == target) 
+
+    tpr <- TP/(TP + FN) #recall/ sensitivity
+    tnr <- TN/(TN + FP) #selectivity/ specificity
+    precision <- TP/(TP + FP) #positive predictive value
+    
+    return(c(accr, tpr, tnr, precision))
+}
+
+```
+
+###### (b) Use the full data set to perform a logistic regression with direction as the response and the five lag variables plus volume as predictors.
+
+```{r logistic-10b}
+glm.fit.full <- glm(direction ~ lag1 + lag2 + lag3 + lag4 + lag5 + volume,
+                    data = weekly,
+                    family = binomial)
+tidy(glm.fit.full)
+glance(glm.fit.full)
+```
+
+Out of all the predictors, only lag2 is statistically significant.
+
+###### (c) Compute the confusion matrix and overall fraction of correct predictions. 
+
+```{r confusion-mtx-10c}
+glm.probs <- predict(glm.fit.full, type = "response")
+glm.pred <- rep("Down", length(glm.probs))
+glm.pred[glm.probs > 0.5] <- "Up" 
+glue("Confusion Matrix")
+c_mat <- table(weekly$direction, glm.pred)
+c_mat
+# calculate various metrics
+metrics <- calc_metrics(c_mat, glm.pred, weekly$direction)
+glue("Accuracy = {metrics[1]}")
+glue("Recall (prop classified correctly when UP) = {metrics[2]}")
+glue("Selectivity (prop classified correctly when DOWN) = {metrics[3]}")
+glue("Precision (prop classified correctly among those classified as UP = {metrics[4]}")
+```
+
+
+###### (d) Now fit the logistic regression model using a training data period from 1990 to 2008, with Lag2 as the only predictor.
+
+```{r logistic-10d}
+train <- weekly$year < 2009
+weekly.0910 <- weekly[!train,]
+direction.0910 <- weekly$direction[!train]
+
+glm.fits.train <- glm(direction ~ lag2, data = weekly, family = binomial,
+                      subset = train)
+# predictions using test set (year > 2008)
+glm.fits.probs <- predict(glm.fits.train, weekly.0910, type = "response")
+glm.pred <- rep("Down", 104)
+glm.pred[glm.fits.probs > 0.5] <- "Up"
+c_mat <- table(direction.0910, glm.pred)
+c_mat
+# calculate various metrics
+metrics <- calc_metrics(c_mat, glm.pred, direction.0910)
+glue("Accuracy = {metrics[1]}")
+glue("Recall (prop classified correctly when UP) = {metrics[2]}")
+glue("Selectivity (prop classified correctly when DOWN) = {metrics[3]}")
+glue("Precision (prop classified correctly among those classified as UP = {metrics[4]}")
+```
+
+
+###### (e) Repeat (d) using LDA.
+
+```{r lda-10e}
+lda.fit <- lda(direction ~ lag2, data = weekly, subset = train)
+lda.pred <- predict(lda.fit, weekly.0910) # predict on test set
+lda.class <- lda.pred$class
+
+c_mat <- table(direction.0910, lda.class)
+c_mat
+# calculate various metrics
+metrics <- calc_metrics(c_mat, lda.class, direction.0910)
+glue("Accuracy = {metrics[1]}")
+glue("Recall (prop classified correctly when UP) = {metrics[2]}")
+glue("Selectivity (prop classified correctly when DOWN) = {metrics[3]}")
+glue("Precision (prop classified correctly among those classified as UP = {metrics[4]}")
+```
+
+The results are identical to the one obtained with the logistic model in (d)
+
+###### (f) Repeat d using QDA.
+
+```{r qda-10e}
+qda.fit <- qda(direction ~ lag2, data = weekly,
+               subset = train)
+qda.pred <- predict(qda.fit, weekly.0910)
+qda.class <- qda.pred$class
+c_mat <- table(direction.0910, qda.class)
+c_mat
+# calculate various metrics
+metrics <- calc_metrics(c_mat, qda.class, direction.0910)
+glue("Accuracy = {metrics[1]}")
+glue("Recall (prop classified correctly when UP) = {metrics[2]}")
+glue("Selectivity (prop classified correctly when DOWN) = {metrics[3]}")
+glue("Precision (prop classified correctly among those classified as UP = {metrics[4]}")
+```
+
+The QDA model behaves like a naive classifier and always assigns UP.
+
+###### (g) Repeat (d) using KNN with K = 1.
+
+```{r knn-1-10g}
+train.X = (weekly$lag1)[train] # convert to matrix
+dim(train.X) <-  c(985, 1) # convert to matrix
+test.X = (weekly$lag1)[!train]
+dim(test.X) = c(104, 1)
+train.direction = weekly$direction[train] # class labels
+
+set.seed(1)
+knn.pred = knn(train.X, test.X, train.direction, k = 1)
+c_mat <- table(knn.pred, direction.0910)
+c_mat
+# calculate various metrics
+metrics <- calc_metrics(c_mat, knn.pred, direction.0910)
+glue("Accuracy = {metrics[1]}")
+glue("Recall (prop classified correctly when UP) = {metrics[2]}")
+glue("Selectivity (prop classified correctly when DOWN) = {metrics[3]}")
+glue("Precision (prop classified correctly among those classified as UP = {metrics[4]}")
+```
+
+Comparing logistic, LDA, QDA and KNN(1), logistic and LDA give the best results. The confusion matrix is identical in both cases.
+
+###### (i) Experiment with different combinations of predictors, includ- ing possible transformations and interactions, for each of the methods.
+
+KNN with K = 3
+
+```{r knn-3-10i}
+set.seed(1)
+knn.pred = knn(train.X, test.X, train.direction, k = 3)
+c_mat <- table(knn.pred, direction.0910)
+c_mat
+# calculate various metrics
+metrics <- calc_metrics(c_mat, knn.pred, direction.0910)
+glue("Accuracy = {metrics[1]}")
+glue("Recall (prop classified correctly when UP) = {metrics[2]}")
+glue("Selectivity (prop classified correctly when DOWN) = {metrics[3]}")
+glue("Precision (prop classified correctly among those classified as UP = {metrics[4]}")
+```
+
+KNN with K = 5
+
+```{r knn-5-10i}
+set.seed(1)
+knn.pred = knn(train.X, test.X, train.direction, k = 5)
+c_mat <- table(knn.pred, direction.0910)
+c_mat
+# calculate various metrics
+metrics <- calc_metrics(c_mat, knn.pred, direction.0910)
+glue("Accuracy = {metrics[1]}")
+glue("Recall (prop classified correctly when UP) = {metrics[2]}")
+glue("Selectivity (prop classified correctly when DOWN) = {metrics[3]}")
+glue("Precision (prop classified correctly among those classified as UP = {metrics[4]}")
+```
+
+Logistics with lag1 and lag2
+
+```{r logistic-10i}
+glm.fits.train <- glm(direction ~ lag1 + lag2, data = weekly, 
+                      family = binomial, subset = train)
+glm.fits.probs <- predict(glm.fits.train, weekly.0910, type = "response")
+glm.pred <- rep("Down", 104)
+glm.pred[glm.fits.probs > 0.5] <- "Up"
+c_mat <- table(glm.pred, direction.0910)
+# calculate various metrics
+metrics <- calc_metrics(c_mat, knn.pred, direction.0910)
+glue("Accuracy = {metrics[1]}")
+glue("Recall (prop classified correctly when UP) = {metrics[2]}")
+glue("Selectivity (prop classified correctly when DOWN) = {metrics[3]}")
+glue("Precision (prop classified correctly among those classified as UP = {metrics[4]}")
+```
+
+Logistic with second order polynomial on lag2 term
+
+```{r logistic-poly-lag2-10i}
+glm.fits.train <- glm(direction ~ poly(lag2, 2), data = weekly, 
+                      family = binomial, subset = train)
+glm.fits.probs <- predict(glm.fits.train, weekly.0910, type = "response")
+glm.pred <- rep("Down", 104)
+glm.pred[glm.fits.probs > 0.5] <- "Up"
+c_mat <- table(glm.pred, direction.0910)
+c_mat
+# calculate various metrics
+metrics <- calc_metrics(c_mat, glm.pred, direction.0910)
+glue("Accuracy = {metrics[1]}")
+glue("Recall (prop classified correctly when UP) = {metrics[2]}")
+glue("Selectivity (prop classified correctly when DOWN) = {metrics[3]}")
+glue("Precision (prop classified correctly among those classified as UP = {metrics[4]}")
+```
+
+The accuracy from the model with the polynomial term is identical to the one obtained from the simple model with the lag2 term. However, the recall drops and precision goes up in the latter in contrast to the values in the simple model where the recall is high and precision is lower.
+
+```{r qda-10i}
+qda.fit <- qda(direction ~ poly(lag2, 2), data = weekly,
+               subset = train)
+qda.pred <- predict(qda.fit, weekly.0910)
+qda.class <- qda.pred$class
+c_mat <- table(direction.0910, qda.class)
+c_mat
+# calculate various metrics
+metrics <- calc_metrics(c_mat, qda.class, direction.0910)
+glue("Accuracy = {metrics[1]}")
+glue("Recall (prop classified correctly when UP) = {metrics[2]}")
+glue("Selectivity (prop classified correctly when DOWN) = {metrics[3]}")
+glue("Precision (prop classified correctly among those classified as UP = {metrics[4]}")
+```
+
+The situation is once again reversed in the QDA method with the polynomial term. It gives high recall with lower precision (lots of false positives).
+
+##### (11) Predict whether a given car gets high or low gas mileage based on the Auto data set.
+
+```{r auto-data}
+auto <- as_tibble(Auto)
+glimpse(auto)
+```
+
+
+###### (a) Create a binary variable, mpg01, that contains a 1 if mpg contains a value above its median, and a 0 if mpg contains a value below its median. You can compute the median using the median() function.
+
+```{r binary-mpg-11a}
+auto %>% 
+    filter(cylinders != 3 & cylinders != 5) %>% 
+    mutate(mpg01 = as.factor(if_else(mpg >= median(mpg), 1, 0)),
+           origin = as.factor(origin),
+           cylinders = as.factor(cylinders)) -> auto #assigned to auto dataset
+table(auto$mpg01)
+```
+
+###### (b) 
+```{r pairs-plt-11b}
+pairs_plt <- ggpairs(auto[,-9], aes(colour = mpg01, alpha = 0.2))
+#pairs_plt
+```
+
+Table of correlations
+
+```{r corr-10b}
+auto %>% 
+    dplyr::select(-name) %>% 
+    mutate_if(is.factor, as.integer) %>%
+    cor()
+```
+
+cylinders, displacement, horsepower and weight are highly correlated with mpg and with each other. The other variables acceleration are correlated as well but not so strongly.
+
+```{r boxplts-10b}
+# displacement
+ggp1 <- ggplot(auto, mapping = aes(x = mpg01, y = displacement))
+ggp1 + geom_boxplot(fill = "lightblue", 
+                    colour = "#3366FF", 
+                    outlier.colour = "red", 
+                    outlier.shape = 1) + coord_flip()
+# displacement (facet = origin)
+ggp1 + geom_boxplot(aes(colour = origin)) + coord_flip()
+# displacement (facet = cylinders)
+ggp1 + geom_boxplot(aes(colour = cylinders)) + coord_flip()
+
+# weight
+ggp2 <- ggplot(auto, mapping = aes(x = mpg01, y = weight))
+ggp2 + geom_boxplot(fill = "lightblue", 
+                    colour = "#3366FF", 
+                    outlier.colour = "red", 
+                    outlier.shape = 1) + coord_flip()
+# weight (facet = origin)
+ggp2 + geom_boxplot(aes(colour = origin)) + coord_flip()
+# weight (facet = cylinders)
+ggp2 + geom_boxplot(aes(colour = cylinders)) + coord_flip()
+
+# horsepower
+ggp3 <- ggplot(auto, mapping = aes(x = mpg01, y = horsepower))
+ggp3 + geom_boxplot(fill = "lightblue", 
+                    colour = "#3366FF", 
+                    outlier.colour = "red", 
+                    outlier.shape = 1) + coord_flip()
+# horsepower (facet = origin)
+ggp3 + geom_boxplot(aes(colour = origin)) + coord_flip()
+# horsepower (facet = cylinders)
+ggp3 + geom_boxplot(aes(colour = cylinders)) + coord_flip()
+
+# acceleration
+ggp4 <- ggplot(auto, mapping = aes(x = mpg01, y = acceleration))
+ggp4 + geom_boxplot(fill = "lightblue", 
+                    colour = "#3366FF", 
+                    outlier.colour = "red", 
+                    outlier.shape = 1) + coord_flip()
+# acceleration (facet = origin)
+ggp4 + geom_boxplot(aes(colour = origin)) + coord_flip()
+# acceleration (facet = cylinders)
+ggp4 + geom_boxplot(aes(colour = cylinders)) + coord_flip()
+```
+
+Vehicles with higher displacement are tend to have lower mpg. However, this seems to be entirely driven by the origin. Almost all the autos with higher displacement are made in the US and these have low mpg. Weight behaves in a similar way - this is not surprising because displacement and weight are highly correlated. The same is true for horsepower. 
+
+We can also examine the plots of the above variables against the continuous measure mpg (with mpg01 highlighted). The plots show that lower mpg is associated with higher displacement, higher weight and higher horsepower, respectively. The association with acceleration is weak.
+
+```{r scatterplts-10b}
+# displacement
+ggp1s <- ggplot(auto, mapping = aes(x = displacement, y = mpg))
+ggp1s + geom_point(aes(color = mpg01)) 
+
+# weight
+ggp2s <- ggplot(auto, mapping = aes(x = weight, y = mpg))
+ggp2s + geom_point(aes(color = mpg01)) 
+
+# horsepower
+ggp3s <- ggplot(auto, mapping = aes(x = horsepower, y = mpg))
+ggp3s + geom_point(aes(color = mpg01)) 
+
+# acceleration
+ggp4s <- ggplot(auto, mapping = aes(x = acceleration, y = mpg))
+ggp4s + geom_point(aes(color = mpg01)) 
+```
+
+The following figures show the factors - cylinders, origin - plotted against mpg.
+
+```{r boxplts-mpg-10b}
+ggp1b <- ggplot(auto, mapping = aes(x = cylinders, y = mpg))
+ggp1b + geom_boxplot(fill = "lightblue", 
+                    colour = "#3366FF", 
+                    outlier.colour = "red", 
+                    outlier.shape = 1)
+
+ggp2b <- ggplot(auto, mapping = aes(x = origin, y = mpg))
+ggp2b + geom_boxplot(fill = "lightblue", 
+                    colour = "#3366FF", 
+                    outlier.colour = "red", 
+                    outlier.shape = 1)
+```
+
+Having more cylinders appears to be bad for mpg. Further, autos produced in the US tend to have poor mpg compared to those produced in Japan.
+
+Some of the predictors like horsepower, weight, displacement are all strongly correlated with one another. We can examine them visually by plotting them against one another.
+
+```{r scatter-iv-plts-10b}
+# displacement and weight
+ggp1iv <- ggplot(auto, mapping = aes(x = displacement, y = weight))
+ggp1iv + geom_point(aes(color = mpg01)) 
+
+# displacement and horsepower
+ggp2iv <- ggplot(auto, mapping = aes(x = displacement, y = horsepower))
+ggp2iv + geom_point(aes(color = mpg01)) 
+
+# horsepower and weight
+ggp3iv <- ggplot(auto, mapping = aes(x = horsepower, y = weight))
+ggp3iv + geom_point(aes(color = mpg01)) 
+
+# horsepower and acceleration
+ggp3iv <- ggplot(auto, mapping = aes(x = horsepower, y = acceleration))
+ggp3iv + geom_point(aes(color = mpg01)) 
+
+```
+
+###### (c) Split the data into a training set and a test set.
+
+```{r train-test-11-d}
+set.seed(1)
+num_train_obs <- nrow(auto) %/% 2
+train_idx <- sample(1:nrow(auto), num_train_obs,replace = FALSE)
+train <- auto[train_idx,]
+test <- auto[-train_idx,]
+```
+
+###### (d) Perform LDA on the training data in order to predict mpg01.
+```{r lda-11-d}
+lda.fit <- lda(mpg01 ~ displacement + cylinders, data = train)
+lda.pred <- predict(lda.fit, test)
+lda.class <- lda.pred$class
+glue("Confusion Matrix")
+c_mat <- table(test$mpg01, lda.class)
+c_mat
+metrics <- calc_metrics(c_mat, lda.class, test$mpg01)
+glue("Accuracy = {metrics[1]}")
+glue("Recall (prop classified correctly when 1) = {metrics[2]}")
+glue("Selectivity (prop classified correctly when 0) = {metrics[3]}")
+glue("Precision (prop classified correctly among those classified as 1 = {metrics[4]}")
+```
+
+The test error of the model with displacement and cylinders is 0.067. It also has high recall and high precision.
+
+###### (d) Perform QDA on the training data in order to predict mpg01.
+
+```{r qda-11-d}
+qda.fit <- qda(mpg01 ~ displacement + cylinders, data = train)
+qda.pred <- predict(qda.fit, test)
+qda.class <- qda.pred$class
+
+glue("Confusion Matrix")
+c_mat <- table(test$mpg01, qda.class)
+c_mat
+metrics <- calc_metrics(c_mat, qda.class, test$mpg01)
+glue("Accuracy = {metrics[1]}")
+glue("Recall (prop classified correctly when 1) = {metrics[2]}")
+glue("Selectivity (prop classified correctly when 0) = {metrics[3]}")
+glue("Precision (prop classified correctly among those classified as 1 = {metrics[4]}")
+```
+
+The results from QDA are identical to the one from LDA.
+
+###### (e) Perform logistic on the training data in order to predict mpg01.
+
+```{r logistic-11-e}
+glm.fit <- glm(mpg01 ~ displacement + cylinders, data = train,
+               family = binomial)
+glm.probs <- predict(glm.fit, test, type = "response")
+glm.pred <- rep(0, length(glm.probs))
+glm.pred[glm.probs >= 0.5] <- 1
+
+glue("Confusion Matrix")
+c_mat <- table(test$mpg01, glm.pred)
+c_mat
+metrics <- calc_metrics(c_mat, glm.pred, test$mpg01)
+glue("Accuracy = {metrics[1]}")
+glue("Recall (prop classified correctly when 1) = {metrics[2]}")
+glue("Selectivity (prop classified correctly when 0) = {metrics[3]}")
+glue("Precision (prop classified correctly among those classified as 1 = {metrics[4]}")
+```
+
+Compared to the LDA and QDA, the test error is higher (0.083). Recall and precision are also worse.
+
+###### (f) Perform KNN on the training data in order to predict mpg01.
+
+K = 1
+```{r knn-1-11-f}
+auto %>% 
+    mutate_if(is.factor, as.integer) %>% 
+    dplyr::select(-c("name", "mpg01")) %>% 
+    scale() -> auto.scaled
+
+train.X <- auto.scaled[train_idx,]
+test.X <- auto.scaled[-train_idx,]
+train.Y <-  auto$mpg01[train_idx]
+test.Y <-  auto$mpg01[-train_idx]
+
+set.seed(1)
+knn.pred <- knn(train.X, test.X, train.Y, k = 1)
+glue("Confusion Matrix")
+c_mat <- table(test.Y, knn.pred)
+c_mat
+metrics <- calc_metrics(c_mat, knn.pred, test.Y)
+glue("Accuracy = {metrics[1]}")
+glue("Recall (prop classified correctly when 1) = {metrics[2]}")
+glue("Selectivity (prop classified correctly when 0) = {metrics[3]}")
+glue("Precision (prop classified correctly among those classified as 1 = {metrics[4]}")
+```
+
+K = 3
+```{r knn-3-11-f}
+auto %>% 
+    mutate_if(is.factor, as.integer) %>% 
+    dplyr::select(-c("name", "mpg01")) %>% 
+    scale() -> auto.scaled
+
+train.X <- auto.scaled[train_idx, c(2, 3)]
+test.X <- auto.scaled[-train_idx, c(2, 3)]
+train.Y <-  auto$mpg01[train_idx]
+test.Y <-  auto$mpg01[-train_idx]
+
+set.seed(1)
+knn.pred <- knn(train.X, test.X, train.Y, k = 3)
+glue("Confusion Matrix")
+c_mat <- table(test.Y, knn.pred)
+c_mat
+metrics <- calc_metrics(c_mat, knn.pred, test.Y)
+glue("Accuracy = {metrics[1]}")
+glue("Recall (prop classified correctly when 1) = {metrics[2]}")
+glue("Selectivity (prop classified correctly when 0) = {metrics[3]}")
+glue("Precision (prop classified correctly among those classified as 1 = {metrics[4]}")
+```
+
+K = 5
+```{r knn-5-11-f}
+
+set.seed(1)
+knn.pred <- knn(train.X, test.X, train.Y, k = 5)
+glue("Confusion Matrix")
+c_mat <- table(test.Y, knn.pred)
+c_mat
+metrics <- calc_metrics(c_mat, knn.pred, test.Y)
+glue("Accuracy = {metrics[1]}")
+glue("Recall (prop classified correctly when 1) = {metrics[2]}")
+glue("Selectivity (prop classified correctly when 0) = {metrics[3]}")
+glue("Precision (prop classified correctly among those classified as 1 = {metrics[4]}")
+```
+
+The model with K=1 has the lowest test error (0.067) among the KNN classifiers. It also has high recall and high precision.
+
+##### (12) Writing functions.
+
+```{r fns-12-a-d}
+Power <- function(x) x^3
+glue("Power 2^3 = {Power(2)}")
+
+Power2 <- function(x, a) x^a
+glue("Power 3^8 = {Power2(3, 8)}")
+glue("Power 8^17 = {Power2(8, 17)}")
+glue("Power 131^3 = {Power2(131, 3)}")
+```
+
+###### (e) Using the Power3() function, create a plot of f(x) = x2. The x-axis should display a range of integers from 1 to 10, and the y-axis should display x2. 
+
+```{r plt-12-e}
+Power3 <- function(x, a) {
+    result = x^a
+    return(result)
+}
+
+x <- seq(1, 10)
+y <- Power3(x, 2)
+
+pltxy <- ggplot(data = NULL, aes(x = x, y = y)) +
+    geom_point(color = "dodger blue")
+
+pltxy + 
+    xlab("x") +
+    ylab("y = square(x)") +
+    labs("Graph of response as a square of the predictor") +
+    scale_x_continuous(breaks = x)
+pltxy + 
+    xlab("x") +
+    ylab("y = square(x) on the log2 scale") +
+    labs("Graph of response as a square of the predictor (log2 scale)") +
+    scale_y_continuous(trans = 'log2') + 
+    scale_x_continuous(breaks = x)
+```
+
+###### (f) Create a function, PlotPower(), that allows you to create a plot of x against x^a for a fixed a and for a range of values of x.
+
+```{r plt-12-f}
+PlotPower <- function(x, p) {
+    y = Power3(x, p)
+    pltxy <- ggplot(data = NULL, aes(x = x, y = y)) +
+    geom_point(color = "dodger blue") +
+    xlab("x") +
+    ylab("y = f(x)") +
+    labs("Graph of response") +
+    scale_x_continuous(breaks = x)
+    pltxy
+}
+
+PlotPower(1:15, 2)
+```
+
+##### (13) Using the Boston data set, fit classification models in order to predict whether a given suburb has a crime rate above or below the median.
+
+```{r boston-13}
+boston <- as_tibble(Boston)
+boston
+boston <- mutate(boston, crim_med = as.factor(if_else(crim >= median(crim), 1, 0)), chas = as.factor(chas))
+table(boston$crim_med)
+glimpse(boston)
+```
+
+Create train and test sets.
+
+```{r train-test-13}
+set.seed(1)
+train_idx <- sample(1:nrow(boston), 350, replace = FALSE)
+train <- boston[train_idx,]
+test <- boston[-train_idx,]
+test.labels <- test$crim_med
+dim(train)
+dim(test)
+```
+
+Correlations between pairs and graphs of pairs.
+
+```{r cor-plts-13}
+boston %>% 
+    mutate_if(is.factor, as.integer) %>% 
+    cor()
+pairs_plt <- ggpairs(boston, aes(colour = crim_med, alpha = 0.2))
+#pairs_plt
+```
+
+The variables rad and tax appear to be correlated with crim. 
+
+We can try logistic regressions with different variables and calculate test errors.
+
+```{r logistic-13}
+# function returns performance measures for models
+performance <- function(fitted_model) {
+    glm.probs <- predict(fitted_model, test, type = "response")
+    glm.pred <- rep(0, length(glm.probs))
+    glm.pred[glm.probs >= 0.5] <- 1
+
+    print("Confusion Matrix")
+    c_mat <- table(test.labels, glm.pred)
+    print(c_mat)
+    c_mat
+    return(calc_metrics(c_mat, glm.pred, test.labels))
+}
+
+glm.fit <- glm(crim_med ~ indus + nox + age + dis + 
+                   rad + tax + black + lstat + medv,
+               data = train,
+               family = binomial)
+metrics <- performance(glm.fit)
+
+glue("Accuracy = {metrics[1]}")
+glue("Recall (prop classified correctly when 1) = {metrics[2]}")
+glue("Selectivity (prop classified correctly when 0) = {metrics[3]}")
+glue("Precision (prop classified correctly among those classified as 1 = {metrics[4]}")
+
+glm.fit <- glm(crim_med ~ indus + nox + age + dis + 
+                   rad + tax + black + lstat,
+               data = train,
+               family = binomial)
+metrics <- performance(glm.fit)
+
+glue("Accuracy = {metrics[1]}")
+glue("Recall (prop classified correctly when 1) = {metrics[2]}")
+glue("Selectivity (prop classified correctly when 0) = {metrics[3]}")
+glue("Precision (prop classified correctly among those classified as 1 = {metrics[4]}")
+
+glm.fit <- glm(crim_med ~ nox + age + dis + 
+                   rad + tax,
+               data = train,
+               family = binomial)
+metrics <- performance(glm.fit)
+
+glue("Accuracy = {metrics[1]}")
+glue("Recall (prop classified correctly when 1) = {metrics[2]}")
+glue("Selectivity (prop classified correctly when 0) = {metrics[3]}")
+glue("Precision (prop classified correctly among those classified as 1 = {metrics[4]}")
+
+glm.fit <- glm(crim_med ~ nox + age + dis + rad + tax + black + medv,
+               data = train,
+               family = binomial)
+metrics <- performance(glm.fit)
+
+glue("Accuracy = {metrics[1]}")
+glue("Recall (prop classified correctly when 1) = {metrics[2]}")
+glue("Selectivity (prop classified correctly when 0) = {metrics[3]}")
+glue("Precision (prop classified correctly among those classified as 1 = {metrics[4]}")
+
+glm.fit <- glm(crim_med ~ nox + rad + tax,
+               data = train,
+               family = binomial)
+metrics <- performance(glm.fit)
+
+glue("Accuracy = {metrics[1]}")
+glue("Recall (prop classified correctly when 1) = {metrics[2]}")
+glue("Selectivity (prop classified correctly when 0) = {metrics[3]}")
+glue("Precision (prop classified correctly among those classified as 1 = {metrics[4]}")
+
+glm.fit <- glm(crim_med ~ nox + poly(rad, 2) + poly(tax, 2),
+               data = train,
+               family = binomial)
+metrics <- performance(glm.fit)
+
+glue("Accuracy = {metrics[1]}")
+glue("Recall (prop classified correctly when 1) = {metrics[2]}")
+glue("Selectivity (prop classified correctly when 0) = {metrics[3]}")
+glue("Precision (prop classified correctly among those classified as 1 = {metrics[4]}")
+```
+
+Although the last model with the polynomial terms performs the best, we get a warning message about fitted probabilities. See https://stats.stackexchange.com/questions/11109/how-to-deal-with-perfect-separation-in-logistic-regression for a discussion. We can use the model with the terms nox, rad and tax (error = 0.09). It also has good recall and precision values.
+
+We can try LDA on the data.
+
+```{r lda-13}
+lda.fit <- lda(crim_med ~ nox + rad + tax, data = train)
+lda.pred <- predict(lda.fit, test)
+lda.class <- lda.pred$class
+glue("Confusion Matrix")
+c_mat <- table(test.labels, lda.class)
+c_mat
+metrics <- calc_metrics(c_mat, lda.class, test.labels)
+glue("Accuracy = {metrics[1]}")
+glue("Recall (prop classified correctly when 1) = {metrics[2]}")
+glue("Selectivity (prop classified correctly when 0) = {metrics[3]}")
+glue("Precision (prop classified correctly among those classified as 1 = {metrics[4]}")
+
+lda.fit <- lda(crim_med ~ nox + rad + I(rad^2) + tax + I(tax^2), data = train)
+lda.pred <- predict(lda.fit, test)
+lda.class <- lda.pred$class
+glue("Confusion Matrix")
+c_mat <- table(test.labels, lda.class)
+c_mat
+metrics <- calc_metrics(c_mat, lda.class, test.labels)
+glue("Accuracy = {metrics[1]}")
+glue("Recall (prop classified correctly when 1) = {metrics[2]}")
+glue("Selectivity (prop classified correctly when 0) = {metrics[3]}")
+glue("Precision (prop classified correctly among those classified as 1 = {metrics[4]}")
+```
+
+Comparing the LDA models, the second one has a lower test error of 0.128. Recall improves but precision falls slightly.
+
+Lastly, we can try KNN on the data.
+
+```{r knn-k-13}
+boston %>% 
+    mutate_if(is.factor, as.integer) %>% 
+    dplyr::select(c("nox", "rad", "tax")) %>% 
+    scale() -> boston.scaled
+
+train.X <- boston.scaled[train_idx,]
+test.X <- boston.scaled[-train_idx,]
+train.Y <- boston$crim_med[train_idx]
+test.Y <- boston$crim_med[-train_idx]
+
+knn.pred <- knn(train.X, test.X, train.Y, k = 1)
+glue("Confusion Matrix")
+c_mat <- table(test.Y, knn.pred)
+c_mat
+metrics <- calc_metrics(c_mat, knn.pred, test.Y)
+glue("Accuracy = {metrics[1]}")
+glue("Recall (prop classified correctly when 1) = {metrics[2]}")
+glue("Selectivity (prop classified correctly when 0) = {metrics[3]}")
+glue("Precision (prop classified correctly among those classified as 1 = {metrics[4]}")
+
+# K = 3
+knn.pred <- knn(train.X, test.X, train.Y, k = 3)
+glue("Confusion Matrix")
+c_mat <- table(test.Y, knn.pred)
+c_mat
+metrics <- calc_metrics(c_mat, knn.pred, test.Y)
+glue("Accuracy = {metrics[1]}")
+glue("Recall (prop classified correctly when 1) = {metrics[2]}")
+glue("Selectivity (prop classified correctly when 0) = {metrics[3]}")
+glue("Precision (prop classified correctly among those classified as 1 = {metrics[4]}")
+
+# K = 5
+knn.pred <- knn(train.X, test.X, train.Y, k = 5)
+glue("Confusion Matrix")
+c_mat <- table(test.Y, knn.pred)
+c_mat
+metrics <- calc_metrics(c_mat, knn.pred, test.Y)
+glue("Accuracy = {metrics[1]}")
+glue("Recall (prop classified correctly when 1) = {metrics[2]}")
+glue("Selectivity (prop classified correctly when 0) = {metrics[3]}")
+glue("Precision (prop classified correctly among those classified as 1 = {metrics[4]}")
+```
+
+The KNN model with K = 3 has the lowest test error of 0.064. It also has high recall and high precision. It is also the best performing method among KNN, LDA and logistic.
+
