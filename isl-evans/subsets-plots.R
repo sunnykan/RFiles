@@ -35,5 +35,5 @@ subsets_plots <- function(reg.summary, nvars) {
         scale_x_continuous(breaks = seq_along(1:nvars)) +
         guides(color = FALSE)
     #grid.arrange(ggrss, ggr2, ggcp, ggbic, ncol = 2, widths = c(4, 4))
-    grid.arrange(ggrss, ggr2, ggcp, ggbic, ncol = 1, nrow = 4)
+    grid.arrange(ggrss, ggr2, ggcp, ggbic, ncol = 2, nrow = 2)
 }

@@ -332,6 +332,8 @@ y = Y
 
 fit_lasso <- glmnet(x, y, alpha = 1)
 plot(fit_lasso)
+
+set.seed(1)
 cv_lasso <- cv.glmnet(x, y, alpha = 1)
 plot(cv_lasso)
 bestlam <- cv_lasso$lambda.min
@@ -362,7 +364,7 @@ subsets_plots(reg.summary, nvars)
 coef(regfit.full, 1)
 
 # LASSO
-x = model.matrix(Y ~ poly(X, 10, raw = TRUE), data = data)[,-1]
+x = model.matrix(y ~ poly(X, 10, raw = TRUE), data = data)[,-1]
 #x = model.matrix(Y ~ poly(X, 10, raw = FALSE), data = data)[,-1]
 
 fit_lasso <- glmnet(x, y, alpha = 1)
@@ -370,7 +372,7 @@ plot(fit_lasso)
 cv_lasso <- cv.glmnet(x, y, alpha = 1)
 plot(cv_lasso)
 bestlam <- cv_lasso$lambda.min
-predict(fit.lasso, s = bestlam, type = "coefficients")[1:11, ]
+predict(fit_lasso, s = bestlam, type = "coefficients")[1:11, ]
 
 # EXAMPLE 9
 rm(list = ls())
@@ -467,7 +469,7 @@ betas <- rnorm(20)
 betas[c(3, 4, 9, 10, 19)] <- 0 #set some betas to zero
 names(betas) <- paste("x_", 1:20, sep = "")
 
-Y <- X %*% betas + e
+Y <- X %*% betas + e # dot product matric X and betas 
 hist(Y)
 
 data_xy <- as.tibble(x = X)
@@ -480,6 +482,8 @@ test <- -(train)
 #subsets
 train.fit <- regsubsets(y ~., data = data_xy[train,], nvmax = 20)
 train.fit.summary <- summary(train.fit)
+
+
 #subsets_plots(train.fit.summary, 20)
 
 # melt(train.fit.summary$rss) %>%
@@ -498,7 +502,7 @@ calc_mse <- function(i) {
     # multiply design matrix by coefficients to get predictions
     pred <- test.mat[, names(coefi)] %*% coefi
     # square the residuals and take square root to get MSE
-    val.errors[i] <- mean((data_xy$y[test] - pred)^2)
+    val.errors[i] <- sum((data_xy$y[test] - pred)^2)
 }
 
 test_mse <- sapply(1:20, calc_mse)
@@ -510,7 +514,7 @@ which.min(test_mse)
 #     scale_x_continuous(breaks = seq_along(1:20))
 
 
-test_mse_vals <- as.tibble( melt(test_mse, value.name = "test"))  %>%
+test_mse_vals <- as.tibble(melt(test_mse, value.name = "test"))  %>%
     rowid_to_column("id")
 train_mse_vals <- as.tibble(melt(train.fit.summary$rss/length(train),
                                  value.name = "train")) %>%
@@ -586,6 +590,7 @@ train.sub.bwd <- regsubsets(crim ~., data = boston[train,],
                             nvmax = length(boston), method = "backward")
 train.sub.all <- train.sub.fwd
 train.sub.all <- train.sub.bwd
+
 val.errors = rep(NA, length(boston) - 1)
 # calculate mse for each train model on test set
 calc_mse <- function(i, fitted_model) {

@@ -1,0 +1,599 @@
+---
+title: "Linear Model Selection and Regularization"
+author: "KS"
+date: '2019-06-09'
+output:
+    github_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load libraries, message = FALSE}
+library("MASS")
+library("tidyverse")
+library("broom")
+library("ISLR")
+library("boot")
+library("glue")
+library("leaps")
+library("reshape2")
+library("gridExtra")
+library("glmnet")
+library("pls")
+```
+
+##### (8) Simulate data and perform best subset selection on it. 
+
+###### (a, b) Use the rnorm() function to generate a predictor X of length n = 100, as well as a noise vector ε of length n = 100. Generate a response vector Y of length n = 100 according to the model Y = β0 +β1X +β2X2 +β3X3 +ε, where β0, β1, β2, and β3 are constants
+
+```{r sim-data8a}
+set.seed(1)
+nobs <- 100
+X <- rnorm(nobs)
+e <- rnorm(nobs)
+b0 <- 4
+b1 <- -3
+b2 <- -2
+b3 <- 1
+Y <- b0 + b1 * X + b2 * (X^2) + b3 * (X^3) + e
+
+data_tb <- tibble(X, Y)
+head(data_tb, 5)
+```
+
+###### (c) Use the regsubsets() function to perform best subset selection in order to choose the best model containing the predictors X, X2, . . . , X10.
+
+```{r best-subset-8c}
+source("subsets-plots.R")
+
+regfit.full <- regsubsets(Y ~ poly(X, 10, raw = TRUE), data_tb, nvmax = 10)
+reg.summary <- summary(regfit.full)
+
+nvars <- regfit.full$np - 1 #number of variables 
+subsets_plots(reg.summary, nvars)
+coef(regfit.full, 3)
+```
+
+Each measure suggests models with the same number of parameters (CP = 3, Rsquare = 3, BIC = 3). The coefficient estimates for the best model suggested by the BIC criterion is shown.
+
+###### (d) Repeat (c), using forward stepwise selection and also using back- wards stepwise selection. 
+
+```{r forward-8d}
+regfit.fwd <- regsubsets(Y ~ poly(X, 10, raw = TRUE), data_tb, nvmax = 10, 
+                        method = "forward")
+reg.fwd.summary <- summary(regfit.fwd)
+nvars <- regfit.fwd$np - 1
+subsets_plots(reg.fwd.summary, nvars)
+coef(regfit.fwd, 3)
+```
+
+```{r backward-8d}
+regfit.bwd <- regsubsets(Y ~ poly(X, 10, raw = TRUE), data_tb, nvmax = 10, 
+                        method = "backward")
+reg.bwd.summary <- summary(regfit.bwd)
+nvars <- regfit.bwd$np - 1
+subsets_plots(reg.bwd.summary, nvars)
+coef(regfit.bwd, 3)
+```
+
+The results agree with (c): the model with three parameters is chosen by all three measures. The estimates are as shown.
+
+(e) Now fit a lasso model to the simulated data, again using X,X2, . . . , X 10 as predictors. Use cross-validation to select the optimal value of λ. Create plots of the cross-validation error as a function of λ. 
+
+```{r lasso-8e}
+#removed the column with 1s (ones)
+x = model.matrix(Y ~ poly(X, 10, raw = TRUE), data = data_tb)[,-1] 
+
+y = Y
+
+fit_lasso <- glmnet(x, y, alpha = 1)
+plot(fit_lasso)
+
+cv_lasso <- cv.glmnet(x, y, alpha = 1)
+plot(cv_lasso)
+bestlam <- cv_lasso$lambda.min
+bestlam
+
+predict(fit_lasso, s = bestlam, type = "coefficients")[1:11,]
+```
+
+Cross validation selects a lambda of 0.03458. Using the selected lambda value gives a model with terms X, X1, X2, X3, X5. Lasso drives the coefficients to zero.
+
+###### (f) Now generate a response vector Y according to the model Y = β0 + β7X7 + ε, and perform best subset selection and the lasso.
+
+```{r regsubset-8f}
+b7 <- 2
+Y <- b0 + b7 * X^7 + e
+data_tb <- tibble(Y, X)
+regfit.full <- regsubsets(Y ~ poly(X, 10, raw = TRUE), data_tb, nvmax = 10)
+reg.summary <- summary(regfit.full)
+
+nvars <- regfit.full$np - 1 #number of variables 
+subsets_plots(reg.summary, nvars)
+coef(regfit.full, 1)
+```
+
+```{r lasso-8f}
+x = model.matrix(Y ~ poly(X, 10, raw = TRUE), data = data_tb)[,-1]
+fit_lasso <- glmnet(x, Y, alpha = 1)
+plot(fit_lasso)
+cv_lasso <- cv.glmnet(x, Y, alpha = 1)
+plot(cv_lasso)
+bestlam <- cv_lasso$lambda.min
+bestlam
+predict(fit_lasso, s = bestlam, type = "coefficients")[1:11, ]
+```
+
+##### (9) Predict the number of applications received using the other variables in the College data set.
+
+###### (a) Split the data into training and test set.
+
+```{r train-test-9a}
+college <- as.tibble(College)
+glimpse(college)
+college %>% map_df(~sum(is.na(.))) # check if any colums have NA values
+names(college) <- tolower(names(college))
+
+set.seed(1)
+train = sample(1:nrow(college), nrow(college) %/% 2)
+test <- -train
+```
+
+###### (b) Fit a linear model using least squares on the training set, and
+report the test error obtained.
+
+```{r lm-9b}
+lm.model <- lm(apps ~., data = college, subset = train)
+apps.pred <- predict(lm.model, newdata = college[test,])
+lm.mse <- mean((apps.pred - college$apps[test])^2)
+
+glue("Test error obtained (MSE) - Least Squares = {round(lm.mse, 3)}")
+```
+
+###### (c) Fit a ridge regression model on the training set, with λ chosen
+by cross-validation. Report the test error obtained.
+
+```{r ridge-9c}
+set.seed(1)
+X <- model.matrix(apps ~., data = college)[,-1] # remove constant term
+Y <- college$apps # target
+
+grid <- 10^seq(10, -2, length = 100)
+
+ridge.mod <- glmnet(X[train,], Y[train], alpha = 0, 
+                    lambda = grid, thresh = 1e-12)
+cv.out <- cv.glmnet(X[train,], Y[train], alpha = 0)
+plot(cv.out)
+
+bestlam <- cv.out$lambda.min
+glue("Best lambda from CV = {round(bestlam, 3)}")
+
+ridge.pred <- predict(ridge.mod, s = bestlam, newx = X[test,])
+ridge.mse <- mean((ridge.pred - Y[test])^2)
+
+glue("Test error obtained (MSE) - Ridge = {round(ridge.mse, 3)}")
+
+```
+
+###### (d) Fit a lasso model on the training set, with λ chosen by cross- validation. Report the test error obtained, along with the number of non-zero coefficient estimates.
+
+```{r lasso-9d}
+set.seed(1)
+
+lasso.mod <- glmnet(X[train,], Y[train], alpha = 1, 
+                    lambda = grid, thresh = 1e-12)
+plot(lasso.mod)
+
+cv.out <- cv.glmnet(X[train, ], Y[train], alpha = 1)
+plot(cv.out)
+
+bestlam <- cv.out$lambda.min
+glue("Best lambda from CV = {round(bestlam, 3)}")
+
+lasso.pred <- predict(lasso.mod, s = bestlam, newx = X[test,])
+lasso.mse <- mean((lasso.pred - Y[test])^2)
+glue("Test error obtained (RMSE) - Lasso = {round(lasso.mse, 3)}")
+
+out = glmnet(X, Y, alpha = 1)
+lasso.coef <- predict(out, s = bestlam, type = "coefficients")
+lasso.coef
+# lasso.coef is an S4 object. To views slot names use slotNames(lasso.coef)
+glue("Number of non-zero coefficient estimates = {sum(lasso.coef@x != 0)}")
+```
+
+###### (e) Fit a PCR model on the training set, with M chosen by cross- validation. Report the test error obtained, along with the value of M selected by cross-validation.
+
+```{r pcr-9e}
+set.seed(1)
+pcr.fit <- pcr(apps ~., data = college,
+               scale = TRUE, validation = "CV",
+               subset = train) # on training set
+summary(pcr.fit)
+validationplot(pcr.fit, val.type = "MSEP")
+```
+
+Results from the CV and the accompanying plot show that the lowest RMSE is obtained when the number of components is 17 which is the full model resulting in no dimension reduction. Instead we can choose M = 9 which captures about 91% of the variance.
+
+```{r pcr-eval-9e}
+pcr.pred <- predict(pcr.fit, X[test,], ncomp = 9)
+pcr.mse <- mean((pcr.pred - Y[test])^2)
+
+glue("Test error obtained (RMSE) = {round(pcr.mse, 3)}")
+```
+
+###### (f) Fit a PLS model on the training set, with M chosen by cross- validation. Report the test error obtained, along with the value of M selected by cross-validation.
+
+```{r pcr-9f}
+pls.fit <- plsr(apps ~., data = college, subset = train, 
+                scale = TRUE,
+                validation = "CV")
+summary(pls.fit)
+validationplot(pls.fit, val.type = "MSEP")
+
+# evaluate on test set with M = 8
+pls.pred <- predict(pls.fit, X[test, ], ncomp = 8)
+pls.mse <- mean((pls.pred - Y[test])^2)
+
+glue("Test error obtained (RMSE) = {round(pls.mse, 3)}")
+```
+
+###### (g)
+The values for test errors for the models fitted above are:
+
+```{r results-9g}
+glue("Least Squares: {round(lm.mse, 3)}")
+glue("Ridge: {round(ridge.mse, 3)}")
+glue("Lasso: {round(lasso.mse, 3)}")
+glue("PCR: {round(pcr.mse, 3)}")
+glue("PLS: {round(pls.mse, 3)}")
+```
+
+Based on test errors, PCR performs the worst among the five models considered while Ridge does the best. The Lasso results in no variable selection which is expected in situation no particular variables may be strongly related to the outcome. In fact, the best lambda value is quite small which means that the Lasso does not perform much better than the least squares model.
+
+##### (10) We have seen that as the number of features used in a model increases, the training error will necessarily decrease, but the test error may not. We will now explore this in a simulated data set.
+
+###### (a) Generate a data set with p = 20 features, n = 1000 observations, and an associated quantitative response vector generated according to the model
+Y = Xβ+ε, where β has some elements that are exactly equal to zero.
+
+```{r gendata-10a}
+set.seed(1)
+
+p <- 20 # features
+n <- 1000 # number of observations
+
+X <- as.matrix(sapply(1:p, function(x) rnorm(n)))
+
+e <- rnorm(n)
+betas <- rnorm(p)
+names(betas) <- paste("x_", 1:20, sep = "")
+
+betas[c(3, 4, 9, 10, 19)] <- 0 #set some betas to zero
+
+Y <- X %*% betas + e # dot product matric X and betas 
+
+data_xy <- as_tibble(x = X)
+names(data_xy) <- paste("x_", 1:20, sep = "")
+data_xy["y"] <- Y
+head(data_xy)
+
+ggplot(data_xy, aes(x = y)) + 
+    geom_histogram(fill = "dodger blue", color = "grey", binwidth = 1) 
+```
+
+###### (b) Split your data set into a training set containing 100 observations and a test set containing 900 observations.
+
+```{r train-test-10b}
+# sample indices between 1:1000
+train <- sample(c(1:1000), 100)
+test <- -(train)
+```
+
+###### (c) Perform best subset selection on the training set, and plot the training set MSE associated with the best model of each size. Plot the test set MSE associated with the best model of each size.
+
+```{r bestsubset-10cd}
+train.fit <- regsubsets(y ~., data = data_xy[train,], nvmax = 20)
+train.fit.summary <- summary(train.fit)
+
+test.mat <- model.matrix(y ~., data = data_xy[test,])
+val.errors <- rep(NA, 20)
+# function to calculate mse for each train model from best subset selection model on test set
+calc_mse <- function(i) {
+    coefi <- coef(train.fit, id = i) # extract coefficients
+    pred <- test.mat[, names(coefi)] %*% coefi # dot product
+    val.errors[i] <- mean((data_xy$y[test] - pred)^2) # save mse
+} # end of function
+
+test_mse <- sapply(1:20, calc_mse) # apply the function to each subset
+#which.min(test_mse) # identify subset with lowest mse
+
+glue("MSE values for selected subsets on test set")
+test_mse
+
+test_mse_vals <- as.tibble(melt(test_mse, value.name = "test"))  %>%
+    rowid_to_column("id")
+train_mse_vals <- as.tibble(melt(train.fit.summary$rss/length(train),
+                                 value.name = "train")) %>%
+    rowid_to_column("id")
+inner_join(train_mse_vals, test_mse_vals, by = "id") %>%
+    melt(id.vars = "id") %>%
+    rename(data = variable, mse = value) %>%
+    ggplot(aes(x = id, y = mse, color = data)) +
+        geom_line() +
+    xlab("Model size") + ylab("MSE")
+
+```
+
+From the graph, we can see that the test MSE always stays above the train MSE as expected.
+
+###### (e) For which model size does the test set MSE take on its minimum value?
+
+```{r min-test-mse-e}
+glue("Model size for which test MSE takes on minimum value = {which.min(test_mse)}")
+
+glue("Fit the full data set to get the model with {which.min(test_mse)} variables")
+reg.best <- regsubsets(y ~., data = data_xy, nvmax = 18)
+names(coef(reg.best, which.min(test_mse)))
+```
+
+###### (f) How does the model at which the test set MSE is minimized compare to the true model used to generate the data? 
+
+```{r coefs-true-10f}
+glue("Fit the full data set to get the best model with {which.min(test_mse)} variables")
+reg.best <- regsubsets(y ~., data = data_xy, nvmax = 18)
+coef(reg.best, which.min(test_mse))
+glue("Parameters in the true model.")
+betas
+```
+
+Comparing the estimated coefficients from the selected model with the parameters from the true model, we can see that the coefficients with zero values are correctly dropped except for the coefficient on x_4 which has a low value but not zero.
+
+###### (g) Create a plot displaying sqrt[sum(j=1 to p) (β(j) - β(rj))^2] for a range of values of r, where β(jr) is the jth coefficient estimate for the best model containing r coefficients. 
+
+```{r plt-10g}
+
+betas <- c('(Intercept)' = 0, betas)
+g <- rep(NA, 20)
+for (r in 1:20) {
+    sum_r <- 0
+    for (j in (names(coef(train.fit, r)))) {
+        sum_r = sum_r + ((betas[j] - coef(train.fit, r)[j])^2)
+    }
+    g[r] <- sqrt(sum_r)
+}
+
+ggplot(data = NULL, aes(x = c(1:20), y = g)) + 
+    geom_path(color = "dodger blue") +
+    xlab("Number of coefficients")
+
+```
+
+Although the difference between the estimated coefficients and the true parameters is lowest with a single variable, the test error is minimized when 15 coefficients are included in the model. In fact, comparing with the figure in (d) we can see that test error is highest when the subset contains only one variable.
+
+##### (11) Predict per capita crime rate in the Boston data set.
+
+```{r boston-data-11}
+set.seed(1)
+
+boston <- as_tibble(Boston)
+glimpse(boston)
+
+train <- sample(c(TRUE, FALSE), nrow(boston), replace = TRUE)
+test <- !train
+table(train, test)
+
+test.mat <- model.matrix(crim ~., data = boston[test,])
+```
+
+###### (a) Try out some of the regression methods explored in this chapter, such as best subset selection, the lasso, ridge regression, and PCR. 
+
+```{r least-sq-11a}
+lm.fit <- lm(crim ~., data = boston[train,])
+lm.pred <- predict(lm.fit, newdata = boston[test,])
+lm.mse <- mean((boston$crim[test] - lm.pred)^2)
+glue("Least squares - MSE = {lm.mse}")
+lm.mse
+```
+
+
+```{r subsets-11a}
+source("subsets-plots.R")
+
+# subsets: all, forward, backward
+sub.all <- regsubsets(crim ~., data = boston[train,], 
+                      nvmax = length(boston))
+sub.fwd <- regsubsets(crim ~., data = boston[train,], 
+                      nvmax = length(boston), 
+                      method = "forward")
+sub.bwd <- regsubsets(crim ~., data = boston[train,], 
+                      nvmax = length(boston), 
+                      method = "backward")
+
+sub.all.summary <- summary(sub.all)
+subsets_plots(sub.all.summary, (length(boston) - 1))
+glue("Number of variables (all subsets) chosen by BIC = {which.min(sub.all.summary$bic)}")
+
+sub.fwd.summary <- summary(sub.fwd)
+subsets_plots(sub.fwd.summary, (length(boston) - 1))
+glue("Number of variables (forward subsets) chosen by BIC = {which.min(sub.fwd.summary$bic)}")
+
+sub.bwd.summary <- summary(sub.bwd)
+subsets_plots(sub.bwd.summary, (length(boston) - 1))
+glue("Number of variables (bacward subsets) chosen by BIC = {which.min(sub.bwd.summary$bic)}")
+
+val.errors = rep(NA, length(boston) - 1)
+calc_mse <- function(i, fitted_model) {
+    coefi = coef(fitted_model, id = i)
+    pred = test.mat[, names(coefi)] %*% coefi
+    val.errors[i] = mean((boston$crim[test] - pred)^2)
+}
+
+test_all_mse <- sapply(1:(length(boston) - 1), calc_mse, sub.all)
+min_all_mse <- test_all_mse[which.min(test_all_mse)]
+glue("all subsets method: model with minimum mse {min_all_mse} has {which.min(test_all_mse)} variables")
+
+test_fwd_mse <- sapply(1:(length(boston) - 1), calc_mse, sub.fwd)
+min_fwd_mse <- test_fwd_mse[which.min(test_fwd_mse)]
+glue("forward subsets method: model with minimum mse {min_fwd_mse} has {which.min(test_fwd_mse)} variables")
+
+test_bwd_mse <- sapply(1:(length(boston) - 1), calc_mse, sub.bwd)
+min_bwd_mse <- test_bwd_mse[which.min(test_bwd_mse)]
+glue("backward subsets method: model with minimum mse {min_bwd_mse} has {which.min(test_bwd_mse)} variables")
+```
+
+Repeat subset selection with cross validation.
+
+```{r subset-cv-11a}
+set.seed(1)
+k = 5 # total folds
+folds <- sample(1:k, nrow(boston), replace = TRUE)
+table(folds) # each fold acts as the test set
+
+cv.errors <- matrix(NA, k, 13, dimnames = list(NULL, paste(1:13)))
+
+predict.regsubsets <- function(object, newdata, id, ...) {
+    form <- as.formula(object$call[[2]])
+    mat <- model.matrix(form, newdata)
+    coefi <- coef(object, id = id)
+    xvars <- names(coefi)
+    mat[, xvars] %*% coefi #return vector of predictions
+}
+
+mean.cv.errors <- list()
+for (m in c("exhaustive", "forward", "backward")) {
+    for (j in 1:k) {
+    best.fit <- regsubsets(crim ~., data = boston[folds != j,], 
+                           nvmax = 13, method = m)
+    for (i in 1:13) {
+        pred = predict.regsubsets(best.fit, boston[folds == j,], id = i)
+        cv.errors[j, i] <- mean((boston$crim[folds == j] - pred)^2)
+    } # for
+} # for
+# take column means to get average error for each model size across folds
+mean.cv.errors[m] <- list(apply(cv.errors, 2, mean))
+}
+
+ggplot(data = NULL, aes(x = c(1:13), y = mean.cv.errors$exhaustive)) + 
+    geom_path(color = "dodger blue") +
+    xlab("Number of variables") + 
+    ylab("Method: Exhaustive") + 
+    scale_x_continuous(breaks = c(1:13))
+
+ggplot(data = NULL, aes(x = c(1:13), y = mean.cv.errors$forward)) + 
+    geom_path(color = "dodger blue") +
+    xlab("Number of variables") + 
+    ylab("Method: Forward") + 
+    scale_x_continuous(breaks = c(1:13))
+
+ggplot(data = NULL, aes(x = c(1:13), y = mean.cv.errors$backward)) + 
+    geom_path(color = "dodger blue") +
+    xlab("Number of variables") + 
+    ylab("Method: Backward") + 
+    scale_x_continuous(breaks = c(1:13))
+
+num_exh <- which.min(mean.cv.errors$exhaustive)
+num_fwd <- which.min(mean.cv.errors$forward)
+num_bwd <- which.min(mean.cv.errors$backward)
+mse_exh <- mean.cv.errors$exhaustive[num_exh]
+mse_fwd <- mean.cv.errors$exhaustive[num_fwd]
+mse_bwd <- mean.cv.errors$exhaustive[num_bwd]
+
+glue("Exhaustive: {num_exh}, {mse_exh}")
+glue("Forward: {num_fwd}, {mse_fwd}")
+glue("Backward: {num_bwd}, {mse_bwd}")
+```
+
+Lasso with cross validation
+
+```{r lasso-cv-11a}
+set.seed(1)
+
+X <- model.matrix(crim ~., data = boston)[,-1] # remove constant term
+Y <- boston$crim # target
+
+grid <- 10^seq(10, -2, length = 100)
+lasso.mod <- glmnet(X[train,], Y[train], alpha = 1, 
+                    lambda = grid, thresh = 1e-12)
+plot(lasso.mod)
+
+cv.out <- cv.glmnet(X[train, ], Y[train], alpha = 1)
+plot(cv.out)
+
+bestlam <- cv.out$lambda.min
+glue("Best lambda from CV = {round(bestlam, 3)}")
+
+lasso.pred <- predict(lasso.mod, s = bestlam, newx = X[test,])
+lasso.mse <- mean((lasso.pred - Y[test])^2)
+glue("Test error obtained (MSE) - Lasso = {round(lasso.mse, 3)}")
+
+out <- glmnet(X, Y, alpha = 1, lambda = grid) # all data
+lasso.coef <- predict(out, s = bestlam, type = "coefficients")
+lasso.coef
+glue("Number of non-zero coefficient estimates = {sum(lasso.coef != 0)}")
+```
+
+Ridge with cross validation
+
+```{r ridge-cv-11a}
+set.seed(1)
+ridge.mod <- glmnet(X[train,], Y[train], alpha = 0, 
+                    lambda = grid, thresh = 1e-12)
+
+cv.out <- cv.glmnet(X[train, ], Y[train], alpha = 0)
+plot(cv.out)
+
+bestlam <- cv.out$lambda.min
+glue("Best lambda from CV = {round(bestlam, 3)}")
+
+ridge.pred <- predict(ridge.mod, s = bestlam, newx = X[test,])
+ridge.mse <- mean((ridge.pred - Y[test])^2)
+glue("Test error obtained (MSE) - Ridge = {round(ridge.mse, 3)}")
+
+# fitting on all data
+out <- glmnet(X, Y, alpha = 0, lambda = grid) # all data
+ridge.coef <- predict(out, s = bestlam, type = "coefficients")
+ridge.coef
+```
+
+PCR with cross validation
+
+```{r pcr-cv-11a}
+set.seed(1)
+pcr.fit <- pcr(crim ~., data = boston, scale = TRUE,
+               validation = "CV", subset = train)
+summary(pcr.fit)
+validationplot(pcr.fit, val.type = "MSEP")
+
+glue("Selecting M = 8")
+pcr.pred = predict(pcr.fit, X[test,], ncomp = 8)
+pcr.mse = mean((pcr.pred - Y[test])^2)
+glue("Test error obtained (MSE) - PCR = {round(pcr.mse, 3)}")
+
+glue("----------------------------------------------------")
+glue("Fitting on all the data using M = 8")
+pcr.fit <- pcr(Y ~ X, scale = TRUE, ncomp = 8)
+summary(pcr.fit)
+```
+
+We can now compare the MSE values obtained from the various methods.
+
+```{r results-11a}
+glue("Least Squares: {round(lm.mse, 3)}")
+glue("Reg Subsets (Exhaustive) - Validation: {round(min_all_mse, 3)}")
+glue("Reg Subsets (Forward) - Validation: {round(min_fwd_mse, 3)}")
+glue("Reg Subsets (Backward) - Validation: {round(min_bwd_mse, 3)}")
+glue("Reg Subsets (Exhaustive) - CV: {round(mse_exh, 3)}")
+glue("Reg Subsets (Forward) - CV: {round(mse_fwd, 3)}")
+glue("Reg Subsets (Backward) - CV: {round(mse_bwd, 3)}")
+glue("Lasso - CV: {round(lasso.mse, 3)}")
+glue("Ridge - CV: {round(ridge.mse, 3)}")
+glue("PCR - CV: {round(pcr.mse, 3)}")
+```
+
+The various subset methods give the lowest MSE values. 
+
+
+
+
+
