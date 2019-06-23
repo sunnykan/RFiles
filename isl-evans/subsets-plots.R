@@ -6,7 +6,8 @@ subsets_plots <- function(reg.summary, nvars) {
         ggplot(aes(x = seq_along(value), y = value), show) + 
         geom_line(color = "dodgerblue", alpha = 0.7) + 
         labs(x = "Number of variables", y = "rss", tag = "A") + 
-        scale_x_continuous(breaks = seq_along(1:nvars))
+        scale_x_continuous(breaks = seq_along(1:nvars)) +
+        theme_minimal()
     ggr2 <- melt(reg.summary$adjr2) %>%
         mutate(max_adjr2 = if_else(row_number() == which.max(reg.summary$adjr2), 
                                    TRUE, FALSE)) %>%
@@ -15,6 +16,7 @@ subsets_plots <- function(reg.summary, nvars) {
         geom_line(color = "dodgerblue", alpha = 0.7) + 
         labs(x = "Number of variables", y = "adjr2", tag = "B") + 
         scale_x_continuous(breaks = seq_along(1:nvars)) +
+        theme_minimal() +
         guides(color = FALSE)
     ggcp <- melt(reg.summary$cp) %>%
         mutate(min_cp = if_else(row_number() == which.min(reg.summary$cp), 
@@ -24,6 +26,7 @@ subsets_plots <- function(reg.summary, nvars) {
         geom_line(color = "dodgerblue", alpha = 0.7) + 
         labs(x = "Number of variables", y = "cp", tag = "C") + 
         scale_x_continuous(breaks = seq_along(1:nvars)) +
+        theme_minimal() +
         guides(color = FALSE)
     ggbic <- melt(reg.summary$bic) %>%
         mutate(min_bic = if_else(row_number() == which.min(reg.summary$bic), 
@@ -33,6 +36,7 @@ subsets_plots <- function(reg.summary, nvars) {
         geom_line(color = "dodgerblue", alpha = 0.7) + 
         labs(x = "Number of variables", y = "bic", tag = "D") + 
         scale_x_continuous(breaks = seq_along(1:nvars)) +
+        theme_minimal() +
         guides(color = FALSE)
     #grid.arrange(ggrss, ggr2, ggcp, ggbic, ncol = 2, widths = c(4, 4))
     grid.arrange(ggrss, ggr2, ggcp, ggbic, ncol = 2, nrow = 2)
