@@ -296,7 +296,7 @@ wages %>% group_by(jobclass, education) %>% mean(wage)
 # natural splines
 gam.fit.11 <- lm(wage ~ ns(age, 5) + maritl, data = wages)
 
-# recode maritl
+# fit again on recoded maritl
 wagesx <- wages %>%
     mutate(maritlx = recode_factor(maritl, 
                                    "1. Never Married" = "0. Other",
@@ -952,16 +952,9 @@ ggplot(data = boston) +
 
 
 spl.plot <- function(pred.spl) {
-    #se <- 2 * pred.spl$se
-    #se.bands <- cbind(pred.spl$fit + se, pred.spl$fit - se)
     ggplot(data = boston) + 
         geom_point(aes(x = dis, y = nox), color = "cornsilk4") +
         geom_line(aes(x = dis, y = pred.spl), color = "dodgerblue4") 
-    #+
-    #    geom_ribbon(aes(x = dis, 
-    #                    ymin = se.bands[, 2], 
-    #                    ymax = se.bands[, 1]),
-    #                fill = "ivory", alpha = 0.6)
 }
 
 spl.df <- function(df) return(
@@ -969,15 +962,17 @@ spl.df <- function(df) return(
 
 # apply model with df 3 to 10 and generate array with predictions for each df
 # (rows = observations, cols = predictions)
-pred.all <- sapply(map(3:10, spl.df), predict)
+pred.all <- sapply(map(3:15, spl.df), predict)
 # calculate residuals and square them
 resids.all <- boston$nox - pred.all
 resids.sq.all <- resids.all^2
-# all up the squared residuals in each column (= df)
+# add up the squared residuals in each column (= df)
 rss_all <- apply(resids.sq.all, 2, sum)
-qplot(3:10, rss_all)
 
-map(1:8, function(df) spl.plot(pred.all[, df]))
+
+ggplot(data = NULL, aes(x = 3:15, y = rss_all))
+
+plots <- map(1:13, function(df) spl.plot(pred.all[, df])) 
 
 ### using cross-validation
 
@@ -1037,13 +1032,14 @@ test_mse_vals[which.min(test_mse_vals)]
 coef(regfit.best, 6)
 
 college6 <- college %>% 
-    select("outstate",
-           "private",
-           "room.board",
-           "terminal",
-           "perc.alumni", 
-           "expend", 
-           "grad.rate")
+  dplyr::select("outstate",
+         "private",
+         "room.board",
+         "terminal",
+         "perc.alumni", 
+         "expend", 
+         "grad.rate")
+
 
 qplot(room.board, outstate, data = college6[train,])
 qplot(room.board, outstate, color = private, data = college6[train,])
@@ -1100,7 +1096,7 @@ anova(gam.1, gam.2, gam.3, gam.4, gam.5, test = "F")
 # Use gam.4
 summary(gam.4)
 
-# predictions on training set
+# predictions on test set
 preds.gam = predict(gam.4, newdata = college[test,])
 resid.gam = college$outstate[test] - preds.gam
 # residuals against fitted

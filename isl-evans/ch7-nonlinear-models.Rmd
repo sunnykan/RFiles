@@ -1,0 +1,995 @@
+---
+title: "Beyond Linearity"
+author: "KS"
+date: "17/06/2019"
+output:
+    github_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T, message = F, warning = F, error = F, 
+                      comment = NA, cache = T, R.options = list(width = 220), 
+                      fig.align = 'center', out.width = '75%', fig.asp = .75)
+```
+
+```{r load-libraries}
+library("tidyverse")
+library("broom")
+library("ISLR")
+library("boot")
+library("glue")
+library("gam")
+library("viridis")
+library("visibly")
+library("MASS")
+library("gridExtra")
+library("leaps")
+library("reshape2")
+```
+
+##### (6) Analyze the Wage data set.
+
+```{r wage-data-6}
+data(Wage)
+wages <- as_tibble(Wage)
+
+# create a grid for age to be used for predictions
+agelims <- range(wages$age)
+age.grid <- seq(from = agelims[1], to = agelims[2])
+```
+
+###### (a) Perform polynomial regression to predict wage using age. Use cross-validation to select the optimal degree d for the polynomial.
+
+```{r polyregcv-6a}
+set.seed(1)
+
+cv.errors.deg <- function(deg) {
+    ## input = degree of polynomial
+    ## returns the object$delta[1] = cv errors 
+    cv.glm(wages, glm(wage ~ poly(age, deg), data = wages), K = 10)$delta[1]
+}
+
+# map call the function cv.errors.deg with degree 1:15
+# errors are saved in cv.errors
+cv.errors <- unlist(map(1:15, cv.errors.deg))
+
+# plot of cv errors versus polynomial degree
+
+ggplot(data = NULL, aes(x = 1:15, y = cv.errors)) + 
+    geom_line(color = "dodger blue") +
+    xlab("Degree") + ylab("CV Errors (folds = 10)") + 
+    theme_minimal()
+
+order(cv.errors)
+cv.errors[order(cv.errors)]
+
+# Although a polynomial of degree 9 gives the lowest CV error, we choose the one with degree 5 which has a slightly higher CV error.
+selected_deg = 5
+
+# fit the model with degree = 9
+poly.min.fit <- glm(wage ~ poly(age, selected_deg), data = wages)
+pred.poly <- predict(poly.min.fit, newdata = list(age = age.grid), se = TRUE)
+
+se.bands <- cbind(pred.poly$fit + 2 * pred.poly$se.fit, 
+                  pred.poly$fit - 2 * pred.poly$se.fit)
+
+gg_wages <- ggplot() +
+    geom_point(data = wages, aes(x = age, y = wage),
+               color = "darksalmon", alpha = 0.8) + 
+    theme_minimal()
+gg_wages + 
+    geom_line(aes(x = age.grid, y = pred.poly$fit), 
+                     color = "turquoise2") +
+    geom_ribbon(aes(x = age.grid, 
+                    ymin = se.bands[,2], ymax = se.bands[,1]), alpha = 0.2) +
+    ggtitle("Polynomial of degree = 5 fit to Wage data")
+
+```
+
+Comparing with ANOVA
+
+```{r anova-5-6a}
+model_fit <- function(deg) {
+    lm(wage ~ poly(age, deg), data = wages)
+}
+
+anova(model_fit(1), model_fit(2), model_fit(3), model_fit(4), model_fit(5))
+```
+
+Examination of the results from ANOVA shows that the terms after the cubic are not significant. We can also take a look at the ANOVA including nine terms.
+
+```{r anova-9-6a}
+anova(model_fit(1), model_fit(2), model_fit(3), model_fit(4), model_fit(5), model_fit(6), model_fit(7), model_fit(8), model_fit(9))
+```
+
+In fact, the ninth degree is significant at conventional levels. This is in agreement with the result we obtained from the cross validation.
+
+###### (b) Fit a step function to predict wage using age, and perform cross- validation to choose the optimal number of cuts. 
+
+```{r step-fn-6b}
+set.seed(1)
+cv.opt.cuts <- function(ncuts) {
+    wages$age.cut <- cut(wages$age, ncuts)
+    cv.glm(wages, glm(wage ~ age.cut, data = wages), K = 10)$delta[1]
+}
+
+cv.errors <- unlist(map(2:10, cv.opt.cuts))
+glue("Selected number of cuts by CV = {which.min(cv.errors) + 1}") # count starts at 2
+ggplot(data = NULL, aes(x = 2:10, y = cv.errors)) + 
+    geom_line(color = "dodger blue") +
+    xlab("Number of Cuts") + ylab("CV Errors (folds = 10)") + 
+    theme_minimal()
+
+# fit model with selected number of cuts
+fit.cut <- lm(wage ~ cut(age, which.min(cv.errors) + 1), data = wages)
+# fitted values using age.grid
+wages.aug <- augment(fit.cut, newdata = tibble(age = age.grid))
+se.bands <- cbind(wages.aug$.fitted + 2 * wages.aug$.se.fit,
+                  wages.aug$.fitted - 2 * wages.aug$.se.fit)
+
+ggplot() +
+    geom_point(data = wages, aes(x = age, y = wage), 
+               color = "darkseagreen2") +
+    geom_line(aes(x = wages.aug$age, wages.aug$.fitted), 
+              color = "dodgerblue4") +
+    geom_ribbon(aes(x = wages.aug$age, ymin = se.bands[,2], ymax = se.bands[,1]),
+                fill = "ivory", alpha = 0.7) +
+    ggtitle("Step function fitted to Wage data (8 cuts)") + 
+    theme_minimal()
+```
+
+##### (7) The Wage data set contains a number of other features not explored in this chapter, such as marital status (maritl), job class (jobclass), and others. Explore the relationships between some of these other predictors and wage, and use non-linear fitting techniques in order to fit flexible models to the data.
+
+We can examine some descriptive statistics and some plots of the other variables in the data set.
+
+```{r other-vars-7}
+# keep only numeric columns
+num_wages <- wages %>% select_if(is.numeric)
+# use apply to get correlations of wage against numeric variables
+apply(num_wages, 2, function(colms) cor(colms, num_wages$wage))
+
+# mean wage by marital status
+wages %>% group_by(maritl) %>% summarise(mean(wage))
+
+gg_maritl <- wages %>% ggplot(aes(x = maritl, y = wage)) +
+    geom_boxplot(fill = "yellowgreen") + theme_minimal()
+gg_maritl
+gg_maritl +  geom_jitter(width = 0.3, alpha = 0.3)
+
+# collapse all categories other than Married and plot
+
+wages %>%
+    mutate(maritlx = recode_factor(maritl, 
+                                   "1. Never Married" = "0. Other",
+                                   "3. Widowed" = "0. Other", 
+                                   "4. Divorced" = "0. Other", 
+                                   "5. Separated" = "0. Other")) %>%
+    ggplot(aes(x = maritlx, y = wage)) +
+    geom_violin(scale = "count", fill = "gold", alpha = 0.5) +
+    theme_minimal()
+
+wages %>% group_by(race) %>% summarise(mean(wage))
+gg_race <- wages %>% ggplot(aes(x = race, y = wage)) + theme_minimal()
+gg_race + geom_boxplot(fill = "salmon")
+gg_race + geom_violin(scale = "count", fill = "salmon") 
+
+wages %>% group_by(education) %>% summarise(mean(wage))
+gg_educ <- wages %>% ggplot(aes(x = education, y = wage)) + theme_minimal()
+gg_educ + geom_boxplot(fill = "steelblue1")
+gg_educ + geom_violin(scale = "count", fill = "steelblue1")
+
+# recode maritl
+wagesx <- wages %>%
+    mutate(maritlx = recode_factor(maritl, 
+                                   "1. Never Married" = "0. Other",
+                                   "3. Widowed" = "0. Other", 
+                                   "4. Divorced" = "0. Other", 
+                                   "5. Separated" = "0. Other"))
+
+# wage vs education faceted by marital status
+gg_educ <- wagesx %>% ggplot(aes(x = education, y = wage)) + theme_minimal()
+gg_educ + geom_violin(aes(fill = factor(maritlx)), scale = "count")
+
+wages %>% group_by(jobclass) %>% summarise(mean(wage))
+# wage vs job class
+gg_jclass <- wages %>% ggplot(aes(x = jobclass, y = wage)) + theme_minimal()
+gg_jclass + geom_boxplot(fill = "paleturquoise")
+gg_jclass + geom_violin(scale = "count", fill = "paleturquoise")
+# wage vs job class faceted by education
+gg_jclass + geom_violin(aes(fill = factor(education)), scale = "count")
+
+wages %>% group_by(health) %>% summarise(mean(wage))
+# wage vs health
+gg_health <- wages %>% ggplot(aes(x = health, y = wage)) + theme_minimal()
+gg_health + geom_boxplot(fill = "aliceblue")
+
+wages %>% group_by(health_ins) %>% summarise(mean(wage))
+# wage vs health insurance status
+gg_ins <- wages %>% ggplot(aes(x = health_ins, y = wage)) + theme_minimal()
+gg_ins + geom_boxplot(fill = "blanchedalmond")
+gg_ins + geom_violin(scale = "count", fill = "blanchedalmond")
+gg_health + geom_violin(scale = "count", fill = "aliceblue")
+
+wages %>% group_by(jobclass, education) %>% summarise(mean(wage))
+
+```
+
+From the various plots above we can see that being married appears to be associated with higher wages as do having an advanced degree, working in the information sector, having health insurance and being in good health.
+
+We can now fit some non-linear models to the data. Consider natural splines first with degree 5 on the age variable. We also include the marital status variable.
+
+```{r ns-marital-7a}
+# natural spline with 5 degrees of freedom
+gam.fit.m1 <- lm(wage ~ ns(age, 5) + maritl, data = wages)
+tidy(gam.fit.m1)
+par(mfrow = c(1, 2))
+plot.Gam(gam.fit.m1, se = TRUE, col = "dodgerblue2")
+```
+
+The error bars on the marital status variable especially for those who are widowed are not informative possibly because there are very few observations. We can use the recoded marital status variable - married vs not-married- and fit again. 
+
+```{r ns-marital-7b}
+# fit again on recoded factor
+gam.fit.m2 <- lm(wage ~ ns(age, 5) + maritlx, data = wagesx)
+tidy(gam.fit.m2)
+par(mfrow = c(1, 2))
+plot.Gam(gam.fit.m2, se = TRUE, col = "dodgerblue2")
+```
+
+We can see that there is a relationship between marital status and wages: holding age fixed, wage tends to increase on average for those who are married. Examining the p-values on the coefficients, we can see that we do not need 5 degrees of freedom.
+
+We can fit a smoothing spline to the same set of variables. Here we fit one with 5 degrees of freedom.
+
+```{r smooth-spline-7a}
+# smoothing splines
+gam.fit.m3 <- gam(wage ~ s(age, 5) + maritlx, data = wagesx)
+par(mfrow = c(1, 2))
+plot(gam.fit.m3, se = TRUE, col = "dodgerblue2")
+summary(gam.fit.m3)
+```
+
+The figures are almost identical to the ones from the model with the natural splines.
+
+Try a smoothing spline model with race instead of marital status.
+
+```{r smooth-spline-7b}
+gam.fit.m4 <- gam(wage ~ s(age, 5) + race, data = wagesx)
+par(mfrow = c(1, 2))
+plot(gam.fit.m4, se = TRUE, col = "darkorange")
+summary(gam.fit.m4)
+```
+
+There are relatively few observations in the categories not reporting as White (`r nrow(wages[wages$race == '1. White',])/nrow(wages)`). 
+
+Try a model with education and a smoothing spline on age.
+
+```{r smooth-spline-7c}
+gam.fit.m5 <- gam(wage ~ s(age, 5) + education, data = wagesx)
+par(mfrow = c(1, 2))
+plot(gam.fit.m5, se = TRUE, col = "salmon")
+summary(gam.fit.m5)
+```
+
+Being more educated is associated with having higher wages on average. This is especially the case with having an advanced degree.
+
+Look at ANOVA to check whether adding more variables is useful. 
+
+```{r anova-7d}
+gam.fit.m6 <- gam(wage ~ s(age, 5), data = wagesx)
+gam.fit.m7 <- gam(wage ~ s(age, 5) + education + race, data = wagesx)
+gam.fit.m8 <- gam(wage ~ s(age, 5) + education + race + maritlx, data = wagesx)
+gam.fit.m9 <- gam(wage ~ s(age, 5) + education + race + maritlx + jobclass, 
+                  data = wagesx)
+anova(gam.fit.m6, gam.fit.m5, gam.fit.m7, gam.fit.m8, gam.fit.m9)
+summary(gam.fit.m9)
+par(mfrow = c(3, 3))
+plot(gam.fit.m9, se = TRUE, col = "salmon")
+```
+
+Results from the ANOVA show that the model with several variables - education, race, maritlx, jobclass - should be preferred. Race appears to be the weakest predictor and we can try a fit without it. Doing so shows a slight increas in AIC.
+
+Finally, we can fit a local regression. 
+
+```{r local-reg-7}
+# use local regression
+# gam.fit.m10 <- gam(wage ~ s(year, df = 4) + lo(age, 0.7) + education + race + # # maritlx + jobclass, data = wagesx)
+# plot(gam.fit.m10)
+par(mfrow = c(1, 3))
+gam.fit.m11 <- gam(wage ~ lo(year, age, span = 0.5) + education + maritlx + jobclass, data = wagesx) 
+plot(gam.fit.m11, se = TRUE, col = "salmon")
+
+par(mfrow = c(1, 3))
+gam.fit.m12 <- gam(wage ~ s(year, df = 4) + lo(age, span = 0.7) + education + maritlx + jobclass, data = wagesx)
+plot(gam.fit.m12, se = TRUE, col = "darkorange")
+```
+
+##### (8) Fit some of the non-linear models investigated in this chapter to the Auto data set.
+
+```{r load-auto}
+data(Auto)
+auto <- as_tibble(Auto)
+# convert origin and cylinders to factors; recode cylinders
+auto <- auto %>% 
+    mutate(origin = as.factor(origin), 
+           cylinders = as.factor(cylinders),
+           cylindersx = recode_factor(cylinders,
+                                      "3" = 34,
+                                      "4" = 34,
+                                      "5" = 568,
+                                      "6" = 568,
+                                      "8" = 568))
+```
+
+We can examine some descriptive statistics and plots.
+
+```{r plots-8}
+ggplot(aes(x = displacement, y = mpg, color = cylindersx), data = auto) + geom_point() + theme_minimal()
+
+ggplot(aes(x = horsepower, y = mpg, color = cylindersx), data = auto) + geom_point() + theme_minimal()
+
+ggplot(aes(x = weight, y = mpg, color = cylindersx), data = auto) + geom_point() + theme_minimal()
+
+ggplot(aes(x = acceleration, y = mpg, color = cylindersx), data = auto) + geom_point() + theme_minimal()
+```
+
+We can see that except for acceleration, the other variables are clearly negatively correlated with mpg. In fact these are highly correlated with one another.
+
+```{r corr-8}
+select_if(auto, is.numeric) %>% cor()
+```
+
+We can look some plots with cylinders as a facet.
+
+
+```{r}
+ggplot(aes(x = displacement, y = mpg), data = auto) + 
+    geom_point(color = "dodger blue") +
+    facet_grid(cols = vars(cylindersx)) + theme_minimal()
+
+ggplot(aes(x = horsepower, y = mpg), data = auto) + 
+    geom_point(color = "dodger blue") +
+    facet_grid(cols = vars(cylindersx)) + theme_minimal()
+
+ggplot(aes(x = weight, y = mpg), data = auto) + 
+    geom_point(color = "dodger blue") +
+    facet_grid(cols = vars(cylindersx)) + theme_minimal()
+```
+
+In each case, the relationship with mpg is slightly modified if we look across different number of cylinders.
+
+Fit a polynomial regression model with weight as the predictor with the degree chosen by cross validation.
+
+```{r polyreg-8}
+#function returns error for a polynomial regression with degree = deg
+cv.auto.deg <- function(deg) {
+    cv.glm(auto, glm(mpg ~ poly(weight, deg), data = auto))$delta[1]
+}
+
+# Try polynomial regression for degrees 1 to 5 and record the one with the minimum error. Plot the errors.
+set.seed(1)
+cv.auto.err1 <- unlist(map(1:5, cv.auto.deg))
+min.deg <- which.min(cv.auto.err1) 
+glue("Polynomial of degree {min.deg} was chosen")
+
+ggplot(data = NULL, aes(x = c(1:5), y = cv.auto.err1)) +
+    geom_line(color = "dodger blue") + 
+    labs(x = "degree", y = "CV error") +
+    theme_minimal()
+```
+
+Create a grid of values and predict using the model selected by crossvalidation.
+
+```{r poly-reg-pred-8}
+wgt.lims <- range(auto$weight)
+wgt.grid <- seq(from = wgt.lims[1], to = wgt.lims[2])
+
+# fit poly with deg chosen by cv
+poly.fit.min.wgt <- glm(mpg ~ poly(weight, min.deg), data = auto)
+
+# predict at grid values
+preds.poly.wgt <- predict(poly.fit.min.wgt, newdata = list(weight = wgt.grid), 
+                          se = TRUE)
+se.bands <- cbind(preds.poly.wgt$fit + 2 * preds.poly.wgt$se.fit,
+                  preds.poly.wgt$fit - 2 * preds.poly.wgt$se.fit)
+ggplot() +
+    geom_point(data = auto, aes(x = weight, y = mpg), 
+               alpha = 0.5, color = "purple") +
+    geom_line(aes(x = wgt.grid, y = preds.poly.wgt$fit)) +
+    geom_ribbon(aes(x = wgt.grid, ymin = se.bands[,2], ymax = se.bands[,1]),
+                alpha = 0.3) +
+    theme_minimal()
+```
+
+We can do the same with the other two variables, but recall that these variables have a similar relationship with the target.
+
+Next we fit a regression spline - cubic is the default - with six degrees of freedom to the weight variable. R will choose the knots for us.
+
+```{r reg-splines-8}
+fit.rgspl.wgt <- lm(mpg ~ bs(weight, df = 6), data = auto)
+tidy(fit.rgspl.wgt)
+glance(fit.rgspl.wgt)
+
+# predictions using grid
+pred.rgspl.wgt <- predict(fit.rgspl.wgt, newdata = list(weight = wgt.grid), 
+                          se = TRUE)
+se.bands <- cbind(pred.rgspl.wgt$fit + 2 * pred.rgspl.wgt$se.fit,
+                  pred.rgspl.wgt$fit - 2 * pred.rgspl.wgt$se.fit)
+ggplot() +
+    geom_point(data = auto, aes(x = weight, y = mpg), 
+               alpha = 0.5, color = "cornflowerblue") +
+    geom_line(aes(x = wgt.grid, y = pred.rgspl.wgt$fit)) +
+    geom_ribbon(aes(x = wgt.grid, ymin = se.bands[,2], ymax = se.bands[,1]),
+                alpha = 0.3) +
+    theme_clean()
+```
+
+The knots selected by R are at:
+
+```{r splines-knots-8}
+attr(bs(auto$weight, df = 6), "knots")
+```
+
+Above the degrees of freedom were arbitrarily fixed at 4. Instead we can also use cross validation to select the number.
+
+We can see that there is greater variance at the ends of the range of weight when it takes either low or high values which is an issue with using splines. A natural spline attempts to fix this problem by enforcing additional constraints at the boundaries; the function is required to be linear in these regions. We fit a natural spline on weight with four degrees of freedom.
+
+```{r nat-splines-8}
+fit.ns.wgt <- glm(mpg ~ ns(weight, df = 4), data = auto)
+tidy(fit.ns.wgt)
+glance(fit.ns.wgt)
+pred.ns.wgt <- predict(fit.ns.wgt, 
+                         newdata = list(weight = wgt.grid), 
+                         se = TRUE)
+se.bands <- cbind(pred.ns.wgt$fit + 2 * pred.ns.wgt$se.fit,
+                  pred.ns.wgt$fit - 2 * pred.ns.wgt$se.fit)
+ggplot() +
+    geom_point(data = auto, aes(x = weight, y = mpg), 
+               alpha = 0.5, color = "cornflowerblue") +
+    geom_line(aes(x = wgt.grid, y = pred.ns.wgt$fit)) +
+    geom_ribbon(aes(x = wgt.grid, ymin = se.bands[,2], ymax = se.bands[,1]),
+                alpha = 0.3) + 
+    theme_trueMinimal()
+```
+
+We can see that the confidence intervals are now smaller at the ends of the range. We can do the same for horsepower and displacement (not shown).
+
+Above the degrees of freedom were arbitrarily set at 4. Instead we can find a value using cross validation.
+
+```{r nat-splines-cv-8}
+#function returns the error from fitting a natural spline with degrees of freedom = dfree
+cv.auto.df <- function(dfree) {
+    cv.glm(auto, 
+           glm(mpg ~ ns(weight, df = dfree), data = auto), K = 5)$delta[1]
+}
+
+set.seed(1)
+#fit natural splines with degrees of freedom from 1 to 15.
+ns.wgt.err <- unlist(map(1:15, cv.auto.df))
+ns.min.deg <- which.min(ns.wgt.err)
+glue("Polynomial of degree {ns.min.deg} was chosen")
+
+ggplot(data = NULL, aes(x = c(1:15), y = ns.wgt.err), color = ns.min.deg) +
+    geom_line(color = "cornflowerblue") + 
+    labs(x = "degrees of freedom", y = "CV error") +
+    theme_minimal()
+```
+
+Fit the model with degrees of freedom selected by cross validation and predict.
+
+```{r nat-splines-cv-pred-8}
+fit.ns.wgt <- glm(mpg ~ ns(weight, df = ns.min.deg), data = auto)
+tidy(fit.ns.wgt)
+pred.ns.wgt <- predict(fit.ns.wgt, 
+                       newdata = list(weight = wgt.grid), 
+                       se = TRUE)
+se.bands <- cbind(pred.ns.wgt$fit + 2 * pred.ns.wgt$se.fit,
+                  pred.ns.wgt$fit - 2 * pred.ns.wgt$se.fit)
+ggplot() +
+    geom_point(data = auto, aes(x = weight, y = mpg), 
+               alpha = 0.5, color = "mediumvioletred") +
+    geom_line(aes(x = wgt.grid, y = pred.ns.wgt$fit)) +
+    geom_ribbon(aes(x = wgt.grid, ymin = se.bands[,2], ymax = se.bands[,1]),
+                alpha = 0.3) +
+    theme_minimal()
+```
+
+The confidence intervals around the values at the boundaries are wider with `r ns.min.deg` of freedom. We can repeat the analysis for horsepower and displacement (not shown).
+
+We can try smoothing splines which are essentially natural cubic splines with a penalty that controls the roughness of the smoothing spline. Below we use cross validation to select λ. We then fit the model using the correponding degrees of freedom and predict. 
+
+```{r smooth-splines-cv--8}
+x <- auto$weight
+y <- auto$mpg
+fit.smth.wgt <- smooth.spline(x, y, cv = TRUE)
+glue("Effective degrees of freedom corresponding to λ chosen by CV = {fit.smth.wgt$df}")
+
+fit.smth.df <- smooth.spline(x, y, df = fit.smth.wgt$df)
+
+preds.smth <- predict(fit.smth.df, x = wgt.grid)
+
+ggplot() + 
+    geom_point(data = auto, aes(x = weight, y = mpg), 
+                      color = "cornsilk4") +
+    geom_line(aes(wgt.grid, preds.smth$y), color = "green") +
+    theme_minimal() +
+    labs(title = "Smoothing spline with λ chosen by CV")
+
+```
+
+A comparison with a model with lower degrees of freedom, 7 for example (not shown), results in a similar plot except for a straighter line for the lower values of weight (< 3000).
+
+Next, we try local regression.
+
+```{r local-reg-8}
+# try different spans
+lo.fit.wgt1 <- loess(mpg ~ weight, span = 0.2, data = auto)
+lo.fit.wgt2 <- loess(mpg ~ weight, span = 0.5, data = auto)
+
+
+preds.lo.wgt1 <- predict(lo.fit.wgt1, newdata = wgt.grid, se = TRUE)
+preds.lo.wgt2 <- predict(lo.fit.wgt2, newdata = wgt.grid, se = TRUE)
+
+ggplot() + 
+    geom_point(data = auto, aes(x = weight, y = mpg), 
+               color = "cornsilk4") +
+    geom_line(aes(wgt.grid, preds.lo.wgt1$fit), color = "green") +
+    geom_line(aes(wgt.grid, preds.lo.wgt2$fit), color = "purple") +
+    theme_minimal()
+```
+
+As expected the green line (span = 0.2) is more wiggly because it uses fewer neighbors for the local fit. 
+
+We will now fit some models with more predictors using GAMs. We start with fitting natural splines on weight and acceleration. 
+
+```{r gam-ns-8}
+gam0 <- lm(mpg ~ ns(weight, 5) + ns(acceleration, 5) + cylindersx, data = auto)
+tidy(gam0)
+glance(gam0)
+
+par(mfrow = c(1, 3))
+plot.Gam(gam0, se = TRUE, col = "chocolate")
+```
+
+Next we refit the model using smoothing splines.
+
+```{r smooth-splines-8}
+gam2 <- gam(mpg ~ s(weight, 5) + s(acceleration, 5) + cylindersx, data = auto)
+summary(gam2)
+par(mfrow = c(1, 3))
+plot(gam2, se = TRUE, col = "dodgerblue2")
+```
+
+Is adding acceleration useful? We can fit a model without acceleration, one with a linear function of acceleration and one with a smoothing term on it.
+
+```{r anova-accl-8}
+gam1 <- gam(mpg ~ s(weight, 5) + cylindersx, data = auto)
+gam2 <- gam(mpg ~ s(weight, 5) + acceleration + cylindersx, data = auto)
+gam3 <- gam(mpg ~ s(weight, 5) + s(acceleration, 5) + cylindersx, data = auto)
+anova(gam1, gam2, gam3, test = "F")
+```
+
+We can see that the model with acceleration is better than the one without it but introducing a non-linear function on acceleration is not needed. We can look at the summary for the second model (gam2).
+
+```{r gam2-summary-8}
+summary(gam2)
+plot(gam2, se = TRUE, col = "chocolate")
+```
+
+##### (9) This question uses the variables dis (the weighted mean of distances to five Boston employment centers) and nox (nitrogen oxides concen- tration in parts per 10 million) from the Boston data. We will treat dis as the predictor and nox as the response.
+
+```{r load-data-9}
+data(Boston)
+boston <- as_tibble(Boston[,c("nox", "dis")])
+glimpse(boston)
+```
+
+###### (a) Use the poly() function to fit a cubic polynomial regression to predict nox using dis
+
+```{r poly-reg-9}
+fit.dis3 <- lm(nox ~ poly(dis, 3), data = boston)
+tidy(fit.dis3)
+glance(fit.dis3)
+
+pred.fit.dis3 <- predict(fit.dis3, se = TRUE)
+se <- 2 * pred.fit.dis3$se.fit
+se.bands <- cbind(pred.fit.dis3$fit + se, pred.fit.dis3$fit - se)
+
+ggplot(data = boston) +
+    geom_point(aes(x = dis, y = nox), colour = "cornsilk4") +
+    geom_line(aes(x = dis, y = pred.fit.dis3$fit), colour = "purple3") +
+    geom_ribbon(aes(x = dis, ymin = se.bands[, 2], ymax = se.bands[, 1]),
+                fill = "yellow", alpha = 0.7) +
+    labs(title = "Cubic Polynomial Regression") +
+    theme_minimal()
+```
+
+###### (b) Plot the polynomial fits for a range of different polynomial degrees (say, from 1 to 10), and report the associated residual sum of squares.
+
+```{r poly-fits-9}
+# function returns the rss and a list with fitted values corresponding to the polynomial degree.
+rss.poly <- function(deg) {
+    poly.deg <- lm(nox ~ poly(dis, degree = deg), data = boston)
+    pred.poly <- predict(poly.deg)
+    resids.poly <- boston$nox - pred.poly
+    return(list("rss" = sum(resids.poly^2), "fitted" = pred.poly))
+}
+
+rss_fits <- map(1:10, rss.poly)
+# extract rss values into a vector
+rss_values <- unlist(map(1:10, f <- function(x) rss_fits[[x]]$rss))
+
+ggplot(data = NULL, aes(x = 1:10, y = rss_values)) +
+    geom_point(color = "purple") +
+    labs(x = "Degree", y = "RSS") +
+    scale_x_continuous(breaks = c(1:10)) +
+    theme_trueMinimal()
+
+fitted_values <- map(1:10, f <- function(x) rss_fits[[x]]$fitted)
+
+for (i in 1:10) {
+    g <- ggplot(data = boston) + 
+        geom_point(aes(x = dis, y = nox), colour = "cornsilk4") + 
+        geom_line(aes(x = dis, fitted_values[[i]]), color = "purple4") +
+        labs(title = glue("degree: {i}")) +
+        theme_minimal()
+}
+```
+
+###### (c) Perform cross-validation or another approach to select the optimal degree for the polynomial.
+
+```{r poly-fit-cv}
+cv.poly <- function(deg) {
+    cv.glm(boston, 
+           glm(nox ~ poly(dis, degree = deg), data = boston))$delta[1]
+}
+
+set.seed(1)
+cv_mse_vals <- unlist(map(1:10, cv.poly))
+glue("Degree of polynomial with lowest error = {which.min(cv_mse_vals)}")
+min.deg <- which.min(cv_mse_vals)
+# cv_mse_vals[which.min(cv_mse_vals)]
+
+ggplot(data = NULL, aes(x = 1:10, y = cv_mse_vals)) +
+    geom_line(color = "salmon") +
+    geom_point(color = "orange", size = 3) +
+    scale_x_continuous(breaks = 1:10) +
+    labs(x = "degree", y = "CV errors", title = "CV errors by polynomial degree") +
+    theme_trueMinimal()
+```
+
+The degree of polynomial with the lowest CV error is `r min.deg`. Anything higher or lower gives a worse fit - however, a degree 4 polynomial is only slighlty worse. We can also see this in the plots from section (b). A degree three polynomial allows the line to curve back at higher values of 'dis'.
+
+###### (d) Use the bs() function to fit a regression spline to predict nox using dis.
+
+```{r bs-fit-9}
+bs.fit <- lm(nox ~ bs(dis, df = 4), data = boston)
+k <- attr(bs(boston$dis, df = 4),"knots")
+k
+tidy(bs.fit)
+glance(bs.fit)
+
+pred.spl <- predict(bs.fit, se = TRUE)
+se <- 2 * pred.spl$se
+se.bands <- cbind(pred.spl$fit + se, pred.spl$fit - se)
+
+ggplot(data = boston) + 
+    geom_point(aes(x = dis, y = nox), color = "cornsilk4") +
+    geom_line(aes(x = dis, y = pred.spl$fit), color = "gold4") +
+    geom_ribbon(aes(x = dis, 
+                    ymin = se.bands[, 2], 
+                    ymax = se.bands[, 1]),
+                fill = "grey1", alpha = 0.1) +
+    labs(title = "Splines with df = 4") +
+    theme_trueMinimal()
+```
+
+A single knot was chosen by R automatically at `r k`.
+
+###### (e) Now fit a regression spline for a range of degrees of freedom, and plot the resulting fits.
+
+```{r bs-fit-cv-9}
+spl.df <- function(df) return(
+    lm(nox ~ bs(dis, df = df), data = boston))
+
+# create a plot for a polynomial at degree = df
+spl.plot <- function(df) {
+    ggplot(data = boston) + 
+        geom_point(aes(x = dis, y = nox), color = "cornsilk3") +
+        geom_line(aes(x = dis, y = pred.all[, df]), color = "dodgerblue4") +
+        labs(title = glue("degree = {df}")) +
+        theme_minimal()
+}
+# apply model with df 3 to 15 and generate array with predictions for each df with (rows = observations, cols = predictions)
+pred.all <- sapply(map(3:15, spl.df), predict)
+# calculate residuals and square them
+resids.all <- boston$nox - pred.all
+resids.sq.all <- resids.all^2
+# add up the squared residuals in each column (= df)
+rss_all <- apply(resids.sq.all, 2, sum)
+min.deg <- which.min(rss_all) + 2
+
+dimnames(pred.all)[[2]] <- seq(3,15) #rename columns to show degree
+plots <- map(3:15, function(df) spl.plot(as.character(df)))
+
+grid.arrange(plots[[1]], plots[[2]], plots[[3]],
+             plots[[4]], plots[[5]], plots[[6]], 
+             plots[[7]], plots[[8]], plots[[9]],
+             plots[[10]], plots[[11]], plots[[12]], 
+             plots[[13]], ncol = 4, nrow = 4)
+
+ggplot(data = NULL, aes(x = 3:15, y = rss_all)) +
+    geom_point(color = "purple") + 
+    labs(x = "degrees of freedom", y = "RSS") +
+    scale_x_continuous(breaks = c(3:15)) + 
+    theme_trueMinimal()
+```
+
+The polynomial degree with the lowest error is `r min.deg'.
+
+###### (f) Perform cross-validation or another approach in order to select the best degrees of freedom for a regression spline on this data.
+
+```{r bs-cv-9}
+#function returns errors
+spl.cv.df <- function(df) {
+    cv.glm(boston, glm(nox ~ bs(dis, df = df), data = boston), K = 10)$delta[1]
+}
+
+set.seed(1)
+cv.mse.spl.vals <- unlist(map(3:10, spl.cv.df))
+
+ggplot(data = NULL, aes(x = 3:10, y = cv.mse.spl.vals)) +
+    geom_line(color = "dodger blue") +
+    labs(x = "degree", y = "CV errors") +
+    theme_minimal()
+
+min.deg <- which.min(cv.mse.spl.vals) + 2
+```
+
+A polynomial of degree `r min.deg` is chosen by cross validation which is much lower than the one that was selected by trying different polynomial degrees and assessing the error. This suggests that we were overfitting in the latter case.
+
+##### (10) This question relates to the College data set.
+
+```{r college-10}
+data(College)
+college <- as_tibble(College)
+names(college) <- tolower(names(college))
+glimpse(college)
+```
+
+###### (a) Split the data into a training set and a test set. Using out-of-state tuition as the response and the other variables as the predictors, perform forward stepwise selection on the training set in order to identify a satisfactory model that uses just a subset of the predictors.
+
+```{r fwd-subset-10}
+source("subsets-plots.R")
+
+set.seed(1)
+train <- sample(c(TRUE, FALSE), nrow(college), replace = TRUE)
+test <- !train
+table(train, test)
+
+regfit.best <- regsubsets(outstate ~., 
+                          data = college[train,],
+                          method = "forward",
+                          nvmax = 17)
+summary.fit <- summary(regfit.best)
+subsets_plots(summary.fit, length(college) - 1)
+min.var <- which.min(summary.fit$bic)
+```
+
+The BIC identifies a model with `r min.var` variables as the best model from forward stepwise selection. The coefficients are:
+
+```{r fwd-subset-10-coef}
+coef(regfit.best, 6)
+```
+
+###### (b) Fit a GAM on the training data, using out-of-state tuition as the response and the features selected in the previous step as the predictors. Plot the results, and explain your findings.
+
+```{r gam-10-i}
+# the factor variable 'private' gets renamed by the forward subset method as 'privateYes'. Rename it as 'private'.
+vars_selected <- names(coef(regfit.best, min.var))[2:(min.var + 1)] %>% 
+str_replace(., "privateYes", "private")
+
+college.gam <- college %>% dplyr::select(vars_selected, outstate)
+head(college.gam)
+
+gam.fit10i <- gam(outstate ~ s(expend, 3) +
+                 s(room.board, 2) +
+                 s(grad.rate, 2) +
+                 s(perc.alumni, 2) +
+                 s(phd, 2) +
+                 private, data = college.gam[train,])
+par(mfrow = c(3, 3))
+plot(gam.fit10i, se = TRUE, col = "chocolate")
+
+summary(gam.fit10i)
+```
+
+From the results it does not look like we need a smoothing term on room.board, perc.alumni and phd. We repeat the analysis with the modified model which results in a slight decrease in the AIC. 
+
+```{r gam-10-ii}
+gam.fit10ii <- gam(outstate ~ s(expend, 3) +
+                 room.board +
+                 s(grad.rate, 2) +
+                 perc.alumni +
+                 phd +
+                 private, data = college.gam[train,])
+par(mfrow = c(3, 3))
+plot(gam.fit10ii, se = TRUE, col = "chocolate")
+
+summary(gam.fit10ii)
+```
+
+
+###### (c-d) Evaluate the model obtained on the test set, and explain the results obtained. For which variables, if any, is there evidence of a non-linear relationship with the response?
+ 
+```{r evaluate-10i}
+# predictions on test set
+preds.gam = predict(gam.fit10ii, newdata = college[test,])
+resid.gam = college.gam$outstate[test] - preds.gam
+rss.gam = mean(resid.gam^2)
+
+# fit the model on the full dataset
+gam.full <- gam(outstate ~ s(expend, 3) + 
+                 s(room.board, 1) + 
+                 s(grad.rate, 2) +
+                 s(perc.alumni, 2) +
+                 private, data = college.gam)
+par(mfrow = c(3, 3))
+plot(gam.full, se = TRUE, col = "gold4")
+```
+
+The estimated test error is `r rss.gam`. Only the expenditure variable has a non-linear relationship with the response: it rises steadily but eventually flattens out.
+
+We refit the model on the entire dataset and check the residuals. The plot shows a good fit to the data. We can also look at a plot of fitted values versus the observed values of 'outstate'.
+
+```{r}
+preds.gam = predict(gam.full, se = TRUE)
+resid.gam = college.gam$outstate - preds.gam$fit
+
+ggplot(data = NULL, aes(preds.gam$fit, resid.gam)) +
+    geom_point(color = "purple", alpha = 0.3) +
+    geom_hline(yintercept = 0, color = "lightgrey") +
+    labs(x = "fitted", y = "residuals") + 
+    theme_trueMinimal()
+
+ggplot(data = NULL, aes(college.gam$outstate, preds.gam$fit)) +
+    geom_point(color = "purple", alpha = 0.3) +
+    geom_abline(intercept = 0, slope = 1, color = "lightgrey") +
+    labs(x = "observed", y = "fitted") + 
+    theme_trueMinimal()
+```
+
+##### (11) We will now explore backfitting in the context of multiple linear regression.
+
+###### (a-d) Generate a response Y and two predictors X1 and X2, with n = 100.
+
+```{r gen-data-11}
+#b0 <- -0.5
+#b1 <- 2.0
+#b2 <- -5.2
+
+set.seed(1)
+x1 <- rnorm(100)
+x2 <- runif(100)
+#y <- rnorm(100)
+y <- -0.5 + 2.0 * x1 - 5.2 * x2 + rnorm(100)
+
+b1 <- 50.0 # initialize beta1
+
+#part (c)
+#a <-  y - b1 * x1 # what is left over after accounting for x1
+#b2 <- lm(a ~ x2)$coef[2] # how much of that can be explained by x2
+a <-  y - b1 * x1
+b2 <- lm(a ~ x2)$coef[2]
+
+#part (d)
+#a <- y - b2 * x2 # what is left over after accounting for x2
+#b1 <- lm(a ~ x1)$coef[2] # how much of that can be explained by x1
+a <- y - b2 * x2
+b1 <- lm(a ~ x1)$coef[2]
+```
+
+###### (e) Write a for loop to repeat (c) and (d) 1,000 times. Report the estimates of βˆ0, βˆ1, and βˆ2 at each iteration of the for loop. Create a plot in which each of these values is displayed, with βˆ0, βˆ1, and βˆ2 each shown in a different color.
+
+```{r loop-e-12}
+vals <- rep(NA, 30)
+dim(vals) <- c(10, 3)
+
+b1 <- -15
+for (i in 1:10) {
+    a <- y - b1 * x1
+    b2 <- lm(a ~ x2)$coef[2]
+    print(b2)
+    
+    #b0 <- lm(a ~ x2)$coef[1]
+    #print(b0)
+    
+    a <- y - b2 * x2
+    b1 <- lm(a ~ x1)$coef[2]
+    print(b1)
+    
+    b0 <- lm(a ~ x1)$coef[1]
+    print(b0)
+    print("---------")
+    
+    vals[i, 1] <- b0
+    vals[i, 2] <- b1
+    vals[i, 3] <- b2
+}
+dimnames(vals)[[2]] <- c("b0", "b1", "b2")
+vals <- as_tibble(vals)
+vals
+
+backfit.plt <- ggplot(data = vals) +
+    geom_line(aes(x = 1:10, y = b0), color = "steelblue1") +
+    geom_line(aes(x = 1:10, y = b1), color = "turquoise") +
+    geom_line(aes(x = 1:10, y = b2), color = "orange") +
+    theme_minimal() +
+    labs(x = "iterations", y = "coefficient estimates" )
+backfit.plt
+```
+
+One can see that convergence to the true paramater values is quite rapid.
+
+###### (f) Compare your answer in (e) to the results of simply performing multiple linear regression to predict Y using X1 and X2.
+
+```{r mult-reg-11}
+lm.fit <- lm(y ~ cbind(x1, x2))
+backfit.plt +
+    geom_hline(yintercept = lm.fit$coef[1], alpha = 0.5) +
+    geom_hline(yintercept = lm.fit$coef[2], alpha = 0.5) +
+    geom_hline(yintercept = lm.fit$coef[3], alpha = 0.5)
+```
+
+The values from the multiple regression model are shown in black. The estimates from the backfitting algorithm are shown in color (b0 in blue, b1 in turquoise, b3 in orange). Only three iterations were required to get a good approximation to the multiple regression coefficient estimates.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
