@@ -1,0 +1,406 @@
+---
+title: "wine-analysis"
+author: "KS"
+date: "26/06/2019"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T, message = F, warning = F, error = F, 
+                      comment = NA, cache = T, R.options = list(width = 220), 
+                      fig.align = 'center', out.width = '75%', fig.asp = .75)
+```
+
+```{r libraries}
+library("tidyverse")
+library("broom")
+library("janitor")
+library("caret")
+library("viridis")
+library("visibly")
+library("gridExtra")
+library("gtable")
+library("grid")
+library("patchwork")
+library("Matrix")
+library("corrplot")
+library("glue")
+library("glmnet")
+library("pracma")
+library("randomForestExplainer")
+library("ggRandomForests")
+library("lime")
+library("ROCR")
+library("plotROC")
+library("pander")
+
+theme_set(theme_minimal())
+```
+
+Get the data from [UCI repository](https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/). Append the red wine and white wine datasets together.
+
+
+```{r get-data}
+#url_red = "https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-red.csv"
+#url_white = "https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-white.csv"
+
+#dest_file = "data/red.csv"
+#download.file(url_red, destfile = dest_file)
+
+#dest_file = "data/white.csv"
+#download.file(url_white, destfile = dest_file)
+
+redwine = read_delim("data/red.csv", delim = ";")
+redwine = add_column(redwine, wine.color = "red")
+
+whitewine = read_delim("data/white.csv", delim = ";")
+whitewine = add_column(whitewine, wine.color = "white")
+
+wine = bind_rows(redwine, whitewine)
+names(wine) = make.names(names(wine),unique = TRUE)
+glimpse(wine)
+summary(wine)
+head(wine)
+```
+
+```{r create-target}
+wine = wine %>% 
+    mutate(rating = if_else(quality >= 7, "good", "bad"))
+
+tabyl(wine, rating, quality) %>% pander()
+```
+
+Create train and test sets (80:20 split).
+
+```{r train-test}
+set.seed(1)
+intrain = createDataPartition(y = wine$rating, p = 0.8, list = FALSE)
+
+xtrain = slice(wine, intrain)
+xtest = slice(wine, -intrain)
+
+dim(xtrain)
+dim(xtest)
+
+names(xtrain) 
+```
+
+Let's look at some descriptive statistics and some plots of the predictors.
+
+```{r explore-data}
+plot_features <- function(feature) {
+    plt = ggplot(data = xtrain)
+    plt1 = plt +
+        geom_density(aes(x = .data[[feature]]), color = "gold4", 
+                     fill = "ivory1", alpha = 0.5) +
+        labs(x = "", y = "")
+    plt2 = plt +
+        geom_boxplot(aes(x = "", y = .data[[feature]]), 
+                     color = "gold4", fill = "ivory1") + 
+        coord_flip() +
+        labs(x = "", y = feature) + 
+        theme(axis.text.y = element_blank(), axis.ticks.y = element_blank())
+    plt1 + plt2 + plot_layout(nrow = 2, heights = c(2, 1))
+}
+
+p = map(names(xtrain[1:11]), function(feature) plot_features(feature));
+p[[1]]
+p[[2]]
+p[[3]]
+p[[4]]
+p[[5]]
+p[[6]]
+p[[7]]
+p[[8]]
+p[[9]]
+p[[10]]
+
+```
+
+The box plots and the corresponding show that many of the variables have extreme observations - they are right skewed. We can log-transform the fixed.acidity and volatile.acidity which makes these variables more normal. We ignore the others for now.
+
+```{r log-transform}
+xtrain = xtrain %>% 
+    mutate(fixed.acidity = log(fixed.acidity),
+           volatile.acidity = log(volatile.acidity))
+plot_features("fixed.acidity")
+plot_features("volatile.acidity")
+```
+
+What about other aspects of the wines?
+
+```{r prop-wine-quality}
+tabyl(xtrain, rating) %>% pander()
+tabyl(xtrain, wine.color) %>% pander()
+tabyl(xtrain, wine.color, quality) %>% pander()
+round(prop.table(table(xtrain$wine.color, xtrain$rating)), 3) %>%  pander()
+```
+
+Only about 20 percent of the wines are rated as good and about 75% of the wines are white. Most wines are rated 5, 6, or 7 and no red wines are rated 9 - the highest rating. Only four white wines have the highest rating. The joint distribution shows that about 16% of the wines are white and rated good. (not shown)
+
+Next we look at the correlation table for the variables.
+
+```{r correlations}
+corr = round(cor(xtrain[1:12]), 3)
+pracma::tril(corr)
+corrplot(corr, type = "lower", diag = FALSE, 
+         rect.col = "grey", rect.lwd = 1, 
+         tl.col = "grey2")
+```
+
+Quality is somewhat correlated with volatile acidity, density and alcohol. The correlations between total sulphur dioxide and free sulphur dioxide; and density and alcohol are above 0.7. Further, density is correlated with most other variables.
+
+If we regress density on all predictors we get a R-square of 94%. 
+
+```{r density-regr}
+rsq = glance(lm(density ~. -quality -wine.color -rating, data = xtrain))$r.squared
+glue("R-squared: {round(rsq, 3)}")
+```
+
+We drop the variable 'density' from the analysis to avoid problems with collinearity. 'wine.color' and 'quality' are also dropped.
+
+```{r drop-variables}
+xtrain = select(xtrain, c(-density, -wine.color, -quality))
+names(xtrain)
+```
+
+Next we look at some boxplots of the predictors against the response.
+
+```{r plts-response}
+boxplts_response <- function(feature){
+    ggplot(data = xtrain) + 
+        geom_boxplot(aes(x = rating, y = .data[[feature]]), 
+                         color = "gold4", fill = "ivory1") + 
+        labs(x = "", y = feature)
+}
+
+plots = map(names(xtrain[1:10]), function(feature) boxplts_response(feature))
+plots[[1]] + plots[[2]] + plots[[3]] + plots[[4]] + plots[[5]] + 
+    plots[[6]] + plots[[7]] + plots[[8]] + plots[[9]] + plots[[10]] + 
+    plot_layout(ncol = 5, nrow = 2)
+```
+
+Typically, one would standardize the predictors explicitly but the caret package can do this as part of training. It will also automatically standardize any test data.
+
+##### Logistic Regression with regularization
+
+```{r logistic-reg, eval = FALSE}
+cv_opts = trainControl(method = 'cv', number = 10)
+regreg_opts = expand.grid(.alpha = c(0, 1),
+                          .lambda = logspace(-4, -0.5, 30))
+
+lrreg = train(rating ~., 
+                       data = xtrain,
+                       method = "glmnet", 
+                       trControl = cv_opts, 
+                       preProcess = c("center", "scale"),
+                       tuneGrid = regreg_opts)
+saveRDS(lrreg, "logistic_rr.RDS")
+```
+
+We can look at the model output and visualize the results. 
+
+```{r logistic-rr, echo = FALSE}
+lrreg = readRDS("logistic_rr.RDS")
+```
+
+```{r plt-logistic}
+lrreg
+
+ggplot(lrreg) + theme_minimal()
+
+lambda_sel = unlist(lrreg$finalModel["lambdaOpt"])
+accr = unlist(max(lrreg$results["Accuracy"]))
+glue("The accuracy for the lasso model (alpha = 1) corresponding to the best lambda = {round(lambda_sel, 3)} selected by CV is {round(accr, 3)}")
+```
+
+The accuracy is not much better than a baseline classifier that classifies based on the majority class (0.803).
+
+##### k-nearest Neighbors
+
+Next we fit a k-nearest Neighbors method with the number of neighbors as the parameter to be tuned.
+
+```{r knn, eval = FALSE}
+cv_opts = trainControl(method = 'cv', number = 10)
+knn_opts = data.frame(k = seq(1, 15, 2))
+
+knn_mod = train(rating ~., 
+                data = xtrain,
+                method = 'knn',
+                preProcess = c('center', 'scale'), 
+                trControl = cv_opts,
+                tuneGrid = knn_opts)
+saveRDS(knn_mod, "knn_mod.RDS")
+```
+
+```{r knn-mod, echo = FALSE}
+knn_mod <- readRDS("knn_mod.RDS")
+```
+
+```{r knn-out}
+knn_mod
+ggplot(knn_mod) + theme_minimal()
+```
+
+There is an improvement in accuracy (= `r unlist(max(knn_mod$results["Accuracy"]))`) compared to the logistic.
+
+##### Support Vector Classifier
+
+We fit a Support Vector Classifier with a radial kernel with cross validation and tune two parameters C and gamma. C is the cost of misclassification: when it is small, there is high bias and low variance. The margin is wider and it is more permissive to violations. The sigma parameter is a measure of the influence of any given training example: a large sigma leads to high bias and low variance.
+
+As for the variance and bias explanation, smaller sigma tends to be less bias and more variance while larger sigma tends to be less variance and more bias.
+
+```{r svc, eval = FALSE}
+grid_svc = expand.grid(sigma = c(0.5, 1, 2, 3, 4),
+                       C = c(1, 5, 10))
+
+cv_opts = trainControl(method = 'cv', number = 10)
+
+svc_mod = train(rating ~., 
+                    data = xtrain, 
+                    method = "svmRadial",
+                    preProcess = c('center', 'scale'), 
+                    trControl = cv_opts,
+                    tuneGrid = grid_svc,
+                    tuneLength = 5,
+                    probability = TRUE)
+saveRDS(svc_mod, "svc_mod.RDS")
+```
+
+We can look at the model output and plot the results.
+
+```{r svc-out, echo = FALSE}
+svc_mod <- readRDS("svc_mod.RDS")
+```
+
+```{r svc-plot}
+svc_mod
+ggplot(svc_mod) + theme_minimal()
+```
+
+The model reports the highest accuracy `r max(svc_mod$results["Accuracy"])` for sigma = `r svc_mod$bestTune[["sigma"]]` and C = `r svc_mod$bestTune[["C"]]`. This has been the method with the highest accuracy so far.
+
+##### Random Forests
+
+In the Random Forests method, several trees are constructed by sampling repeatedly from the original data. We tune 'mtry' the minimum number of samples required to split a node. 
+
+```{r random-forests, eval = FALSE}
+rf_opts = data.frame(mtry = c(2, 4, 7, 10))
+cv_opts = trainControl(method = 'cv', number = 10)
+
+rf_mod = train(rating ~., 
+               data = xtrain,
+               method = 'rf',
+               preProcess = c('center', 'scale'),
+               trControl = cv_opts,
+               tuneGrid = rf_opts,
+               localImp = TRUE,
+               ntree = 1000)
+saveRDS(rf_mod, "rf_mod.RDS")
+```
+
+```{r rf-out, echo = FALSE}
+rf_mod <- readRDS("rf_mod.RDS")
+```
+
+Let's look at the output model and plot it.
+
+```{r rf-plot}
+rf_mod
+ggplot(rf_mod) + theme_minimal()
+```
+
+The model selects mtry = `r rf_mod$bestTune[["mtry"]]`. 
+
+We can examine some metrics that can help us understand what is happening with the predictors.
+
+```{r varImp}
+varImp(rf_mod)
+```
+
+The most important (100) to the least important (0) predictors are shown in a variable importance table. Unsurprisingly, alcohol appears to be the most important. A related measure to determine importance is the minimum average depth. More important variables are more likely to be split higher up in the tree: an average depth can be calculated for each variable over all trees in the forest.
+
+We can also look at partial dependence plots to understand the effect of any predictor in the model after adjusting for the effects of others.
+
+```{r rf-partial-dep-plts-a, eval = FALSE}
+xtrain %>% 
+    as.data.frame(xtrain) %>% 
+    mutate(rating = as.factor(rating)) -> xtrain_df
+
+rf2 = rfsrc(formula = rating ~., 
+            data = xtrain_df,
+            mtry = rf_mod$finalModel[["mtry"]])
+
+gg_v = gg_variable(rf2)
+gg_md = gg_minimal_depth(rf2)
+```
+
+```{r rf-partial-dep-plts-b, echo = FALSE}
+gg_v = readRDS("gg_v.RDS")
+gg_md = readRDS("gg_md.RDS")
+```
+
+We can plot the partial dependence plots for the top three variables. 
+
+```{r rf-partial-dep-plts-c}
+xvar = gg_md$topvars[1:3]
+plot(gg_v, xvar = xvar, panel = TRUE, alpha = .3) +
+    labs(y = 'Probability: Good rating', x = "") +
+    scale_color_manual(values = c("#FF5500", "#00aaff")) + 
+    geom_smooth(aes(group = 1), color = "#98244C") +
+    guides(colour = guide_legend(override.aes = list(alpha = 1))) +
+    theme_minimal() +
+    theme(legend.title = element_blank())
+```
+
+The probability of a good rating increases when the alcohol content is between 10 and 13 percent. We will ignore chlorides for now; the presence of extreme values distorts the graph but it should be noted that having more chorides is associated with the probability of a poorer rating. Volatile acidity also shows a negative association.
+
+##### Assessing Random Forests method on test data
+
+Of the models considered so far, the random forests method has peformed the best in terms of accuracy. We will use this model and assess its performance on the test set.
+
+```{r rf-test}
+observed_rating = as.factor(xtest$rating)
+preds_rf = predict(rf_mod, xtest)
+confusionMatrix(preds_rf, observed_rating, positive = 'good') 
+```
+
+The model performs poorly: it is not much better than always guessing the majority class. Precision is 0.875 while recall is poor around 0.05 which means that there are a lot of false negatives. These calculations are based on a default threshold of 0.5. 
+
+While accuracy may be low, we might be more concerned about precision because classifying a bad wine as good may be deemed more costly than vice-versa. We can vary the decision thresholds and look at plots of the true positive rate (recall) versus the false positive rate as well as the positive predictive value (precision) versus recall. 
+
+```{r rocr-rf}
+ypred_test = predict(rf_mod, xtest, type = "prob")
+target = if_else(xtest$rating == "good", 1, 0)
+
+# ROC curve
+rocplot = ggplot(data = NULL, aes(m = ypred_test[,2], d = target)) + 
+    geom_roc(n.cuts = 20,labels = FALSE, 
+             color = "chocolate", size = 1.0)
+rocplot + 
+    style_roc() + 
+    geom_rocci() +
+    annotate("text", x = .75, y = .25, 
+           label = paste("AUC =", round(calc_auc(rocplot)$AUC, 2))) +
+    labs(title = "ROC curve")
+
+preds_roc = prediction(ypred_test[,2], target)
+perf = performance(preds_roc,"prec","rec")
+
+ggplot(data = NULL) +
+    geom_line(aes(x = perf@x.values[[1]], #recall
+                  y = perf@y.values[[1]], #precision
+                  color = perf@alpha.values[[1]])) + 
+    labs(x = "recall", 
+         y = "precision", 
+         color = "thresholds",
+         title = "precision - recall curve") +
+    scale_color_viridis_c(option = "viridis", direction = -1) +
+    theme_minimal()
+```
+
+The ROC and the precision - recall curves are shown. At higher thresholds, precision is high but recall is low. As mentioned previously, there is a trade-off here and what we decide depends on the costs involved. One might choose a recall of 0.25 which would roughly correspond to a precision of 0.8. 
+
+The AUC is a measure of discrimination: the ability of the test (classifier) to correctly classify good and bad wines. If we run the test on any randomly drawn pair (good, bad), the AUC indicates the percentage of such pairs classified correctly.
+
+Prior to testing on test data, it would have been useful to consider the presence of extreme values in the training data and assess their influence on the models. We could also have explored interactions and non-linear effects. It would also have been useful to consider generalized additive models and subset selection procedures.
