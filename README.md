@@ -1,7 +1,7 @@
 # RFiles
 R scripts and RMarkdown files
 
-[**isl-evans**](https://github.com/sunnykan/RFiles/tree/master/isl-evans]):
+[**isl-evans**](https://github.com/sunnykan/RFiles/tree/master/isl-evans):
 folder contains R scripts and Markdown files from exercises in [_An Introduction to Statistical Learning with 
 Applications in R_](https://www.statlearning.com/) by Gareth James, Daniela Witten, Trevor Hastie and Robert Tibshirani
 
